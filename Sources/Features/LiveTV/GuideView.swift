@@ -270,16 +270,24 @@ struct GuideView: View {
                             .id("guide-now-anchor")
                     }
                     .background {
-                        GeometryReader { geometry in
-                            Color.clear.preference(
-                                key: GuideScrollOffsetKey.self,
-                                value: CGPoint(
-                                    x: -geometry.frame(in: .named("guideScroll")).minX,
-                                    y: -geometry.frame(in: .named("guideScroll")).minY))
+                        // Legacy offset tracking: AppKit does not reliably fire
+                        // these during scrolling, so this is only the fallback
+                        // for OSes without onScrollGeometryChange.
+                        if #unavailable(iOS 18.0, macOS 15.0) {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: GuideScrollOffsetKey.self,
+                                    value: CGPoint(
+                                        x: -geometry.frame(in: .named("guideScroll")).minX,
+                                        y: -geometry.frame(in: .named("guideScroll")).minY))
+                            }
                         }
                     }
                 }
                 .coordinateSpace(name: "guideScroll")
+                .modifier(GuideScrollSync(
+                    onOffset: { scrollOffset = $0 },
+                    onViewport: { viewportSize = $0 }))
                 .onPreferenceChange(GuideScrollOffsetKey.self) { value in
                     scrollOffset = value
                 }
@@ -401,6 +409,36 @@ struct GuideScrollOffsetKey: PreferenceKey {
     static var defaultValue: CGPoint = .zero
     static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
         value = nextValue()
+    }
+}
+
+/// Live scroll-offset sync for the frozen channel column and timeline header.
+/// Uses onScrollGeometryChange where available (fires continuously on both
+/// AppKit and UIKit scrolling); older OSes fall back to the preference key.
+private struct GuideScrollSync: ViewModifier {
+    let onOffset: (CGPoint) -> Void
+    let onViewport: (CGSize) -> Void
+
+    struct Snapshot: Equatable {
+        var offset: CGPoint
+        var viewport: CGSize
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            content.onScrollGeometryChange(for: Snapshot.self) { geometry in
+                Snapshot(
+                    offset: CGPoint(
+                        x: geometry.contentOffset.x + geometry.contentInsets.leading,
+                        y: geometry.contentOffset.y + geometry.contentInsets.top),
+                    viewport: geometry.containerSize)
+            } action: { _, snapshot in
+                onOffset(snapshot.offset)
+                onViewport(snapshot.viewport)
+            }
+        } else {
+            content
+        }
     }
 }
 
