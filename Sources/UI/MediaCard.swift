@@ -6,11 +6,13 @@ struct MediaCard: View {
     enum Style {
         case poster // 2:3
         case thumb  // 16:9 still/backdrop
+        case square // 1:1 album art
 
         var aspectRatio: CGFloat {
             switch self {
             case .poster: 2.0 / 3.0
             case .thumb: 16.0 / 9.0
+            case .square: 1.0
             }
         }
     }
@@ -25,7 +27,11 @@ struct MediaCard: View {
     private var height: CGFloat { width / style.aspectRatio }
 
     private var imageRef: ImageRef? {
-        style == .poster ? item.posterRef : item.thumbRef
+        switch style {
+        case .poster: item.posterRef
+        case .thumb: item.thumbRef
+        case .square: item.posterRef
+        }
     }
 
     var body: some View {

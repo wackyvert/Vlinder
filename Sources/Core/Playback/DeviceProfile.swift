@@ -242,9 +242,12 @@ struct CloseLiveStreamBody: Encodable {
 }
 
 struct ProgramsRequestBody: Encodable {
-    var channelIds: [String]
+    /// nil = all channels (the guide's paged bulk fetch).
+    var channelIds: [String]?
     var minEndDate: Date
     var maxStartDate: Date
+    var startIndex: Int?
+    var limit: Int?
     var sortBy: [String] = ["StartDate"]
     var enableImages: Bool = false
     var enableUserData: Bool = false
@@ -254,6 +257,8 @@ struct ProgramsRequestBody: Encodable {
         case channelIds = "ChannelIds"
         case minEndDate = "MinEndDate"
         case maxStartDate = "MaxStartDate"
+        case startIndex = "StartIndex"
+        case limit = "Limit"
         case sortBy = "SortBy"
         case enableImages = "EnableImages"
         case enableUserData = "EnableUserData"

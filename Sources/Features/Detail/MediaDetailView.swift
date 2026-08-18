@@ -9,7 +9,13 @@ final class MediaDetailModel {
     var item: BaseItem
     private(set) var siblings: [BaseItem] = []
     private(set) var similar: [BaseItem] = []
+    private(set) var specialFeatures: [BaseItem] = []
     private(set) var isLoading = false
+
+    // Pre-play selections (TrackSelectionRow).
+    var selectedSourceId: String?
+    var audioIndex: Int?
+    var subtitleIndex: Int?
 
     init(item: BaseItem) {
         self.item = item
@@ -27,6 +33,9 @@ final class MediaDetailModel {
         }
         if item.type == .movie || item.type == .series {
             similar = (try? await client.similar(itemId: item.id)) ?? []
+        }
+        if item.type == .movie || item.type == .episode {
+            specialFeatures = (try? await client.specialFeatures(itemId: item.id)) ?? []
         }
     }
 
@@ -54,6 +63,9 @@ struct MediaDetailView: View {
                     PlayControls(
                         item: model.item,
                         queue: model.item.type == .episode ? model.siblings : [],
+                        mediaSourceId: model.selectedSourceId,
+                        audioStreamIndex: model.audioIndex,
+                        subtitleStreamIndex: model.subtitleIndex,
                         onUserDataChanged: {
                             Task {
                                 if let client = app.client {
@@ -61,10 +73,26 @@ struct MediaDetailView: View {
                                 }
                             }
                         })
+                    TrackSelectionRow(
+                        item: model.item,
+                        selectedSourceId: Binding(
+                            get: { model.selectedSourceId },
+                            set: { model.selectedSourceId = $0 }),
+                        audioIndex: Binding(
+                            get: { model.audioIndex },
+                            set: { model.audioIndex = $0 }),
+                        subtitleIndex: Binding(
+                            get: { model.subtitleIndex },
+                            set: { model.subtitleIndex = $0 }))
                     MediaInfoLine(item: model.item)
                     OverviewText(item: model.item)
+                    ExternalLinksRow(item: model.item)
                 }
                 .padding(.horizontal, 20)
+
+                ChapterRow(
+                    item: model.item,
+                    queue: model.item.type == .episode ? model.siblings : [])
 
                 PeopleRow(people: model.item.people ?? [])
 
@@ -73,6 +101,10 @@ struct MediaDetailView: View {
                         title: model.item.seasonName ?? "Episodes",
                         items: model.siblings,
                         style: .thumb)
+                }
+
+                if !model.specialFeatures.isEmpty {
+                    MediaRow(title: "Special Features", items: model.specialFeatures, style: .thumb)
                 }
 
                 if !model.similar.isEmpty {

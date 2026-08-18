@@ -5,9 +5,9 @@ import Observation
 @Observable
 final class ConnectModel {
     enum Phase: Equatable {
+        case users
         case enterServer
         case probing
-        case chooseMethod
         case quickConnect(code: String?)
         case password
     }
@@ -23,8 +23,22 @@ final class ConnectModel {
 
     private(set) var serverName: String?
     private(set) var quickConnectAvailable = false
+    private(set) var discovered: [ServerDiscovery.DiscoveredServer] = []
     @ObservationIgnored private(set) var client: JellyfinClient?
     @ObservationIgnored private var quickConnectTask: Task<Void, Never>?
+    @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+
+    var onSignedIn: ((Session) -> Void)?
+
+    // MARK: - LAN discovery
+
+    func startDiscovery() {
+        guard discoveryTask == nil else { return }
+        discoveryTask = Task { [weak self] in
+            let servers = await ServerDiscovery.discover()
+            self?.discovered = servers
+        }
+    }
 
     // MARK: - Server probe
 
@@ -33,38 +47,31 @@ final class ConnectModel {
         phase = .probing
         do {
             let url = try JellyfinClient.normalizeServerInput(serverInput)
-            let client = JellyfinClient(serverURL: url, deviceId: DeviceID.persistent())
-            let info = try await client.publicSystemInfo()
-            self.client = client
-            self.serverName = info.serverName
-            UserDefaults.standard.set(serverInput, forKey: "vlinder.lastServer")
-            self.quickConnectAvailable = (try? await client.quickConnectEnabled()) ?? false
-            if quickConnectAvailable {
-                startQuickConnect()
-            } else {
-                phase = .password
-            }
+            try await probe(url: url)
         } catch {
             // If the user typed no scheme we defaulted to https; retry once over http
             // for plain-HTTP LAN servers before giving up.
             if !serverInput.contains("://"),
-               let httpURL = try? JellyfinClient.normalizeServerInput("http://" + serverInput) {
-                let fallback = JellyfinClient(serverURL: httpURL, deviceId: DeviceID.persistent())
-                if let info = try? await fallback.publicSystemInfo() {
-                    self.client = fallback
-                    self.serverName = info.serverName
-                    UserDefaults.standard.set(serverInput, forKey: "vlinder.lastServer")
-                    self.quickConnectAvailable = (try? await fallback.quickConnectEnabled()) ?? false
-                    if quickConnectAvailable {
-                        startQuickConnect()
-                    } else {
-                        phase = .password
-                    }
-                    return
-                }
+               let httpURL = try? JellyfinClient.normalizeServerInput("http://" + serverInput),
+               (try? await probe(url: httpURL)) != nil {
+                return
             }
             errorMessage = error.localizedDescription
             phase = .enterServer
+        }
+    }
+
+    private func probe(url: URL) async throws {
+        let client = JellyfinClient(serverURL: url, deviceId: DeviceID.persistent())
+        let info = try await client.publicSystemInfo()
+        self.client = client
+        self.serverName = info.serverName
+        UserDefaults.standard.set(serverInput, forKey: "vlinder.lastServer")
+        self.quickConnectAvailable = (try? await client.quickConnectEnabled()) ?? false
+        if quickConnectAvailable {
+            startQuickConnect()
+        } else {
+            phase = .password
         }
     }
 
@@ -138,8 +145,6 @@ final class ConnectModel {
 
     // MARK: - Completion
 
-    var onSignedIn: ((Session) -> Void)?
-
     private func complete(with result: AuthenticationResult, client: JellyfinClient) throws {
         guard let token = result.accessToken, let user = result.user else {
             throw JellyfinError.decoding("authentication result missing token or user")
@@ -165,28 +170,36 @@ final class ConnectModel {
 }
 
 struct ConnectView: View {
+    /// Hidden for the "Add account" sheet, where a fresh sign-in is wanted.
+    var showsSavedAccounts = true
+
     @Environment(AppState.self) private var app
     @State private var model = ConnectModel()
     @FocusState private var serverFieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            VStack(spacing: 28) {
-                header
-                card
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer(minLength: 40)
+                VStack(spacing: 28) {
+                    header
+                    card
+                }
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 24)
+                Spacer(minLength: 60)
             }
-            .frame(maxWidth: 420)
-            .padding(.horizontal, 24)
-            Spacer()
-            Spacer()
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
         .onAppear {
             model.onSignedIn = { session in
                 app.adopt(session: session)
             }
+            if showsSavedAccounts, !app.accounts.isEmpty {
+                model.phase = .users
+            }
+            model.startDiscovery()
         }
         .onDisappear { model.cancelQuickConnect() }
     }
@@ -195,7 +208,7 @@ struct ConnectView: View {
         VStack(spacing: 8) {
             Image(systemName: "play.rectangle.on.rectangle.fill")
                 .font(.system(size: 44))
-                .foregroundStyle(.blue)
+                .foregroundStyle(.tint)
             Text("Vlinder")
                 .font(.largeTitle.weight(.bold))
             Text(subtitleText)
@@ -215,6 +228,8 @@ struct ConnectView: View {
     private var card: some View {
         VStack(spacing: 16) {
             switch model.phase {
+            case .users:
+                accountGrid
             case .enterServer:
                 serverEntry
             case .probing:
@@ -222,7 +237,7 @@ struct ConnectView: View {
                     .padding(.vertical, 20)
             case .quickConnect(let code):
                 quickConnect(code: code)
-            case .password, .chooseMethod:
+            case .password:
                 passwordForm
             }
 
@@ -235,6 +250,55 @@ struct ConnectView: View {
         }
         .padding(24)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    // MARK: - Saved accounts (Fladder's login user grid)
+
+    private var accountGrid: some View {
+        VStack(spacing: 14) {
+            Text("Who's watching?")
+                .font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110, maximum: 150), spacing: 12)], spacing: 12) {
+                ForEach(app.accounts) { account in
+                    Button {
+                        app.adopt(session: account)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Circle()
+                                .fill(.tint.opacity(0.2))
+                                .frame(width: 54, height: 54)
+                                .overlay {
+                                    Text(String((account.userName ?? "?").prefix(1)).uppercased())
+                                        .font(.title2.weight(.bold))
+                                        .foregroundStyle(.tint)
+                                }
+                            Text(account.userName ?? "User")
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            Text(account.serverName ?? account.serverURL.host() ?? "")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Remove account", role: .destructive) {
+                            app.removeAccount(accountId: account.id)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button {
+                model.phase = .enterServer
+            } label: {
+                Label("Add a server", systemImage: "plus")
+            }
+        }
     }
 
     private var serverEntry: some View {
@@ -256,6 +320,45 @@ struct ConnectView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.serverInput.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            if !model.discovered.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Found on your network")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(model.discovered) { server in
+                        Button {
+                            model.serverInput = server.address
+                            Task { await model.connectToServer() }
+                        } label: {
+                            HStack {
+                                Image(systemName: "server.rack")
+                                VStack(alignment: .leading) {
+                                    Text(server.name)
+                                        .font(.callout.weight(.medium))
+                                    Text(server.address)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showsSavedAccounts, !app.accounts.isEmpty {
+                Button("Back to accounts") {
+                    model.phase = .users
+                }
+                .font(.callout)
+            }
         }
         .onAppear { serverFieldFocused = true }
     }

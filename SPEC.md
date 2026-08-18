@@ -6,79 +6,93 @@ Vlinder is a native SwiftUI Jellyfin viewer for **macOS and iOS**, built using
 Tuner's stream logic is canonical here; it works markedly better than
 Fladder's against this server.
 
-Legend: ✅ shipped in v0.1 · 🔜 planned · ❌ out of scope for a "viewer"
+Legend: ✅ shipped · ❌ intentionally out of scope for a "viewer"
 
 ## Connect & auth
 | Fladder behavior | Vlinder |
 |---|---|
-| Server URL entry with scheme probing (https→http fallback) | ✅ `ConnectView` / `JellyfinClient.normalizeServerInput` |
+| Server URL entry with scheme probing (https→http fallback) | ✅ |
 | Quick Connect (initiate → poll → authenticate), auto-refresh expired codes | ✅ ported from Tuner incl. pre-10.9 GET fallback, 401→disabled, 404→expired |
 | Username/password (`/Users/AuthenticateByName`) | ✅ |
-| Session persistence | ✅ single Keychain item (`dev.jake.vlinder.session`), UserDefaults fallback for unsigned dev builds |
-| Multi-server / multi-user account grid, per-account LAN URL, lock screen | 🔜 single active session in v0.1 |
-| UDP LAN discovery (port 7359) | 🔜 |
+| Saved-account grid ("Who's watching?"), multi-server/multi-user | ✅ single Keychain item, auto-migrates the v0.1 format |
+| Per-account LAN URL with automatic local/remote switching | ✅ probes the local address and swaps the client when it responds |
+| UDP LAN discovery (port 7359) | ✅ (macOS; iOS needs Apple's multicast entitlement — degrades to nothing found) |
+| App lock passcode | ✅ Keychain-stored, asked at launch |
 
 ## Home (dashboard)
 | Fladder | Vlinder |
 |---|---|
-| Continue Watching (`/Users/{id}/Items/Resume`) | ✅ thumb row |
-| Next Up (`/Shows/NextUp`) | ✅ thumb row |
-| Active TV channels row | ✅ "On Now" channel cards (only when a livetv view exists) |
-| Recently added per library (`/Items/Latest` per view) | ✅ poster rows |
-| Hero banner carousel, continue listening/reading, poster-size pinch | 🔜 |
+| Hero banner carousel (combined next-up + continue) | ✅ auto-advancing; page-swipe on iOS, arrows on macOS; toggleable |
+| Continue Watching / Next Up | ✅ thumb rows |
+| Active TV channels row | ✅ "On Now" cards (only when a livetv view exists) |
+| Continue Listening (audio resume) | ✅ square-art row |
+| Recently added per library | ✅ poster rows |
+| Poster-size control (pinch + setting) | ✅ three steps, pinch on library grids |
+| Continue Reading | ❌ (needs the book viewer, out of scope) |
 
 ## Libraries
 | Fladder | Vlinder |
 |---|---|
-| Views listing (`/Users/{id}/Views`) | ✅ grid of library cards |
-| Paged item grid (offset/limit, load past 65%) | ✅ 100/page, prefetch near end |
+| Views listing, paged grid (prefetch past ~80%) | ✅ 100/page |
 | Sorting (name, dateAdded, releaseDate, rating, runtime, random) | ✅ |
-| Filters: favorites, unplayed | ✅ (genres/years/studios/tags 🔜) |
-| Folder/BoxSet/Playlist drill-down | ✅ non-recursive child listing |
+| Filters: favorites, unwatched, genres, years, parental ratings, tags | ✅ sheet over `/Items/Filters`, active-count badge |
+| Folder/BoxSet/Playlist drill-down | ✅ |
 | Multi-select bulk actions, saved filter presets, group-by | ❌ |
 
 ## Details
 | Fladder | Vlinder |
 |---|---|
-| Backdrop hero + logo + metadata + overview + genres | ✅ `DetailHeader` |
-| Play/Resume with long-press restart | ✅ (context menu "Play from beginning") |
-| Favorite / mark-watched toggles | ✅ |
-| Cast & crew row | ✅ |
-| Series: season picker + episode list w/ stills, next-up-aware play target | ✅ |
-| Episode: sibling episodes row | ✅ |
-| Similar / "More Like This" (`/Items/{id}/Similar`) | ✅ movies & series |
-| Media info (resolution/codec/audio) | ✅ one-line summary |
-| Pre-play version/audio/subtitle pickers | 🔜 (plumbing exists in `startVideoStream`) |
-| Chapters row, special features, external links, metadata editing | 🔜/❌ |
+| Backdrop hero + logo + metadata + overview + genres | ✅ |
+| Play/Resume with restart option | ✅ context menu "Play from beginning" |
+| Pre-play version / audio / subtitle pickers (MediaStreamHelper) | ✅ chips above the overview; selections flow into PlaybackInfo |
+| Favorite / mark-watched, cast row | ✅ |
+| Chapters row (thumbnails, tap seeks) | ✅ plays from chapter position |
+| Series: season picker + episode list, next-up-aware play target | ✅ |
+| Special features row | ✅ movies & episodes |
+| External links (IMDb, TMDb, …) | ✅ chips |
+| Similar / "More Like This" | ✅ |
+| Media info summary (resolution/codec/audio/sub count) | ✅ |
+| Metadata editing, identify, refresh | ❌ (admin features) |
 
 ## Playback (VOD)
 | Fladder | Vlinder |
 |---|---|
-| PlaybackInfo with device profile → direct play vs HLS transcode | ✅ AVPlayer-native profile (mp4/mov/ts + h264/hevc direct; HLS/ts transcode) |
-| Resume (server-side offset for transcode, client seek for direct) | ✅ offset-aware position reporting |
-| Start/progress/stopped reporting + transcode cleanup | ✅ every 10 s + `DELETE /Videos/ActiveEncodings` |
-| Next-episode auto-advance in a season queue | ✅ on end-of-item; prev/next buttons in overlay |
-| Subtitle delivery | ✅ HLS-segmented VTT via subtitle profile (AVPlayer native menu) |
-| Smart outro-based next prompt, media segments skip, trickplay, mpv backend | ❌ (AVFoundation only) |
+| PlaybackInfo with device profile → direct play vs HLS transcode | ✅ AVPlayer-native profile |
+| Resume (server-side offset for transcode, client seek for direct) | ✅ |
+| Start/progress/stopped reporting + transcode cleanup | ✅ every 10 s |
+| Next-episode auto-advance + prev/next controls | ✅ |
+| Subtitles via HLS-segmented VTT (native AVPlayer menu) | ✅ |
+| Media segments skip, trickplay scrubbing, mpv backend, hotkey editor | ❌ (AVFoundation-native player) |
 
 ## Live TV — **Tuner logic, verbatim**
 | Behavior | Vlinder |
 |---|---|
-| `POST /Items/{ch}/PlaybackInfo` with `AutoOpenLiveStream` | ✅ one round trip opens the tuner |
-| Prefer server `TranscodingUrl` (HLS), else `stream.ts` fallback | ✅ |
-| `POST /LiveStreams/Close` on teardown (frees tuner for channel hops) | ✅ + progress keepalive every 10 s (Tuner lacked this) |
-| Channel list sorted number→name, favorites first | ✅ with now-playing + progress |
-| Search channels/programs | ✅ |
-| Guide grid (Xfinity-style), lineup-URL channel grouping (M3U/JSON relay) | 🔜 — port `LineupParser`/`LineupLoader` from Tuner (pure Foundation) |
+| `AutoOpenLiveStream` PlaybackInfo → prefer `TranscodingUrl` → `stream.ts` fallback | ✅ `DeviceProfile.live` is byte-for-byte Tuner (do not extend — extra profile entries caused CoreMedia -12705) |
+| `POST /LiveStreams/Close` on teardown + progress keepalive | ✅ |
+| **Xfinity-style guide**: frozen channel column, timeline header, now-line, "Now" jump | ✅ 16-hour window from the 15-min boundary −15 min |
+| Bulk program paging (800/page, incremental apply, 45-min staleness, race guard) | ✅ ported from the Fladder fork's provider |
+| **Lineup-URL channel grouping** (M3U / lineup JSON relay) | ✅ parser + cached loader ported verbatim from Tuner/Fladder — same relay contract |
+| Collapsible groups (persisted), "Other Channels" bucket, search auto-expand | ✅ |
+| Program cells: airing highlight, genre color bars, past dimming, future-program switch dialog | ✅ |
+| Channel list alternative view (favorites first, now-playing progress) | ✅ toolbar toggle |
+| In-player guide overlay for channel surfing | ✅ sheet from the live player |
 
 ## Search
 Global `/Users/{id}/Items?searchTerm` (400 ms debounce), grouped by
 Movies/Series/Episodes/Collections/People/Channels — ✅.
 
 ## Settings
-Account info + sign out, streaming quality ceiling, Live TV channel numbers —
-✅. Theme, subtitle appearance, hotkeys, downloads — 🔜/❌.
+Account info + LAN override + sign out, saved accounts (switch/add/remove),
+theme (system/light/dark), poster size, home banner toggle, streaming quality,
+Live TV (channel numbers, lineup URL + refresh with group count), app lock,
+about — ✅. Subtitle appearance editor, remappable hotkeys, downloads — ❌.
 
 ## Out of scope (viewer)
 Seerr/Overseerr, sync/offline downloads, book & photo viewers, music-first UX,
-server admin control panel, metadata editing.
+server admin control panel, metadata editing, mpv/libass playback backends.
+
+## Verified against real infrastructure (2026-08-18)
+Jellyfin 10.10.7 → 10.11.11 (jf.torgerson.cc), Northstar relay lineup
+(7 groups / 82 channels): Quick Connect, home rows, grouped guide with live
+program data, live channel tuning (transcoded MPEG-2), VOD resume, session
+migration.

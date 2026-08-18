@@ -5,12 +5,12 @@ A native SwiftUI **Jellyfin viewer for macOS and iOS**, built to
 live-TV stream engine. *Vlinder* is Dutch for butterfly — Fladder's natural
 next form.
 
-- **Connect**: Quick Connect (preferred) or username/password
-- **Home**: Continue Watching · Next Up · On Now (live channels) · Recently added per library
-- **Libraries**: sortable, filterable, endless-scrolling poster grids
-- **Details**: hero/logo headers, resume-aware play, cast, seasons & episodes, similar titles
+- **Connect**: Quick Connect (preferred) or username/password; saved-account grid, LAN discovery, per-account local URL switching, app lock
+- **Home**: hero banner carousel · Continue Watching · Next Up · On Now (live channels) · Continue Listening · Recently added per library
+- **Libraries**: sortable poster grids with genre/year/rating/tag filters, pinch poster sizing, endless scrolling
+- **Details**: hero/logo headers, resume-aware play, pre-play version/audio/subtitle pickers, chapters, cast, seasons & episodes, special features, external links, similar titles
 - **Playback**: AVPlayer with direct play or server HLS transcode, resume, progress reporting, episode auto-advance
-- **Live TV**: channel list with now-playing info; stream logic ported verbatim from Tuner (`AutoOpenLiveStream` → `TranscodingUrl` → `LiveStreams/Close`)
+- **Live TV**: Xfinity-style guide (frozen channel column, now-line, collapsible relay-lineup groups) + channel list; in-player guide for channel surfing; stream logic ported verbatim from Tuner (`AutoOpenLiveStream` → `TranscodingUrl` → `LiveStreams/Close`)
 
 See [SPEC.md](SPEC.md) for the full Fladder→Vlinder feature map.
 

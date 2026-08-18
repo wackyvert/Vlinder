@@ -270,14 +270,14 @@ final class JellyfinClient: @unchecked Sendable {
         return result.items ?? []
     }
 
-    func resumeItems(limit: Int = 20) async throws -> [BaseItem] {
+    func resumeItems(limit: Int = 20, mediaTypes: String = "Video") async throws -> [BaseItem] {
         let userId = try requireUserId()
         let result: ItemsResult = try await sendDecoding(
             method: .get, path: "/Users/\(userId)/Items/Resume",
             query: [
                 URLQueryItem(name: "Limit", value: "\(limit)"),
                 URLQueryItem(name: "Recursive", value: "true"),
-                URLQueryItem(name: "MediaTypes", value: "Video"),
+                URLQueryItem(name: "MediaTypes", value: mediaTypes),
                 URLQueryItem(name: "Fields", value: Self.listFields),
             ],
             endpoint: "Items/Resume")
@@ -340,6 +340,9 @@ final class JellyfinClient: @unchecked Sendable {
         var filters: [String] = []
         var genres: [String] = []
         var personIds: [String] = []
+        var years: [Int] = []
+        var officialRatings: [String] = []
+        var tags: [String] = []
     }
 
     func items(_ q: ItemsQuery) async throws -> ItemsResult {
@@ -368,6 +371,15 @@ final class JellyfinClient: @unchecked Sendable {
         }
         if !q.personIds.isEmpty {
             query.append(URLQueryItem(name: "PersonIds", value: q.personIds.joined(separator: ",")))
+        }
+        if !q.years.isEmpty {
+            query.append(URLQueryItem(name: "Years", value: q.years.map(String.init).joined(separator: ",")))
+        }
+        if !q.officialRatings.isEmpty {
+            query.append(URLQueryItem(name: "OfficialRatings", value: q.officialRatings.joined(separator: "|")))
+        }
+        if !q.tags.isEmpty {
+            query.append(URLQueryItem(name: "Tags", value: q.tags.joined(separator: "|")))
         }
         return try await sendDecoding(
             method: .get, path: "/Users/\(userId)/Items", query: query, endpoint: "Users/Items")
@@ -435,11 +447,41 @@ final class JellyfinClient: @unchecked Sendable {
     }
 
     /// POST so long channel-id lists don't blow the URL length limit (Tuner pattern).
-    func programs(channelIds: [String], from: Date, to: Date) async throws -> [BaseItem] {
-        let body = ProgramsRequestBody(channelIds: channelIds, minEndDate: from, maxStartDate: to)
+    /// With channelIds nil this pages over ALL channels' programs in the window
+    /// (the Fladder fork's bulk-guide fetch, limit 800 per page).
+    func programs(
+        channelIds: [String]? = nil,
+        from: Date,
+        to: Date,
+        startIndex: Int? = nil,
+        limit: Int? = nil
+    ) async throws -> [BaseItem] {
+        var body = ProgramsRequestBody(channelIds: channelIds, minEndDate: from, maxStartDate: to)
+        body.startIndex = startIndex
+        body.limit = limit
         let result: ItemsResult = try await sendDecoding(
             method: .post, path: "/LiveTv/Programs", body: body, endpoint: "LiveTv/Programs")
         return result.items ?? []
+    }
+
+    func specialFeatures(itemId: String) async throws -> [BaseItem] {
+        let userId = try requireUserId()
+        return try await sendDecoding(
+            method: .get, path: "/Items/\(itemId)/SpecialFeatures",
+            query: [URLQueryItem(name: "userId", value: userId)],
+            endpoint: "Items/SpecialFeatures")
+    }
+
+    /// Available filter values for a library (legacy Filters shape: plain strings).
+    func filters(parentId: String?, includeItemTypes: [String]) async throws -> FilterValues {
+        let userId = try requireUserId()
+        var query = [URLQueryItem(name: "userId", value: userId)]
+        if let parentId { query.append(URLQueryItem(name: "parentId", value: parentId)) }
+        if !includeItemTypes.isEmpty {
+            query.append(URLQueryItem(name: "includeItemTypes", value: includeItemTypes.joined(separator: ",")))
+        }
+        return try await sendDecoding(
+            method: .get, path: "/Items/Filters", query: query, endpoint: "Items/Filters")
     }
 
     // MARK: - Stream resolution
@@ -527,8 +569,9 @@ final class JellyfinClient: @unchecked Sendable {
         #endif
 
         // Direct play only when no specific tracks were requested; AVPlayer can't
-        // switch embedded tracks the way the server's HLS remux can.
-        let wantsSpecificTracks = subtitleStreamIndex != nil
+        // honor Jellyfin stream indices on a static file the way the server's
+        // HLS remux can.
+        let wantsSpecificTracks = subtitleStreamIndex != nil || audioStreamIndex != nil
         if source.supportsDirectPlay == true, !wantsSpecificTracks {
             var query = [URLQueryItem(name: "static", value: "true")]
             if let sourceId = source.id { query.append(URLQueryItem(name: "mediaSourceId", value: sourceId)) }
@@ -619,6 +662,19 @@ final class JellyfinClient: @unchecked Sendable {
             query.append(URLQueryItem(name: "api_key", value: token))
         }
         return try? apiURL(path: "/Items/\(itemId)/Images/\(type.rawValue)", query: query)
+    }
+
+    func chapterImageURL(itemId: String, index: Int, tag: String?, maxWidth: Int = 480) -> URL? {
+        guard let tag, !tag.isEmpty else { return nil }
+        var query = [
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "maxWidth", value: "\(maxWidth)"),
+            URLQueryItem(name: "quality", value: "90"),
+        ]
+        if let token = accessToken, !token.isEmpty {
+            query.append(URLQueryItem(name: "api_key", value: token))
+        }
+        return try? apiURL(path: "/Items/\(itemId)/Images/Chapter/\(index)", query: query)
     }
 
     func userImageURL(userId: String, tag: String?, size: Int = 120) -> URL? {

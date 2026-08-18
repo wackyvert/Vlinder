@@ -1,8 +1,7 @@
 import SwiftUI
 import Observation
 
-/// Live TV channel list: number, logo, name, current program with progress.
-/// Favorites float to the top; search filters by channel or program name.
+/// Live TV tab: Xfinity-style guide (default) with a channel-list alternative.
 /// Playback goes through PlayerCoordinator.playChannel → Tuner's stream logic.
 @MainActor
 @Observable
@@ -49,11 +48,45 @@ final class LiveTVModel {
 }
 
 struct LiveTVView: View {
+    enum Mode: String, CaseIterable, Identifiable {
+        case guide, channels
+        var id: String { rawValue }
+        var label: String { self == .guide ? "Guide" : "Channels" }
+        var icon: String { self == .guide ? "rectangle.grid.1x2" : "list.bullet" }
+    }
+
     @Environment(AppState.self) private var app
     @Environment(PlayerCoordinator.self) private var player
     @State private var model = LiveTVModel()
+    @State private var mode: Mode = .guide
 
     var body: some View {
+        Group {
+            switch mode {
+            case .guide:
+                GuideView()
+            case .channels:
+                channelListBody
+            }
+        }
+        .navigationTitle("Live TV")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker("View", selection: $mode) {
+                    ForEach(Mode.allCases) { mode in
+                        Label(mode.label, systemImage: mode.icon).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var channelListBody: some View {
         Group {
             if let error = model.errorMessage, !model.hasLoaded {
                 ErrorRetryView(message: error) {
@@ -65,7 +98,6 @@ struct LiveTVView: View {
                 channelList
             }
         }
-        .navigationTitle("Live TV")
         .searchable(text: $model.searchTerm, prompt: "Channel or program")
         .task {
             if !model.hasLoaded {
@@ -167,16 +199,8 @@ struct ChannelListRow: View {
     private func programLine(_ program: BaseItem) -> String {
         var line = program.name ?? ""
         if let start = program.startDate, let end = program.endDate {
-            let formatter = Self.timeFormatter
-            line += "  ·  \(formatter.string(from: start))–\(formatter.string(from: end))"
+            line += "  ·  \(GuideTime.label(for: start, style: .exact))–\(GuideTime.label(for: end, style: .exact))"
         }
         return line
     }
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter
-    }()
 }

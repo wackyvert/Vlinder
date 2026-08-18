@@ -29,6 +29,7 @@ targets:
         NSAppTransportSecurity:
           # Jellyfin over plain HTTP on the LAN.
           NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Vlinder looks for Jellyfin servers on your network.
         UIBackgroundModes: [audio]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:

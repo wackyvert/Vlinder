@@ -49,13 +49,19 @@ final class PlayerCoordinator {
 
     // MARK: - Entry points
 
+    /// The item currently loaded (channel id during live playback).
+    private(set) var currentItemId: String?
+
     /// Play a VOD item, optionally within a queue (episode auto-advance).
+    /// `startTicks` overrides the resume position (chapter jumps).
     func play(
         item: BaseItem,
         queue: [BaseItem] = [],
         fromBeginning: Bool = false,
+        startTicks: Int64? = nil,
         audioStreamIndex: Int? = nil,
         subtitleStreamIndex: Int? = nil,
+        mediaSourceId: String? = nil,
         client: JellyfinClient,
         settings: AppSettings
     ) {
@@ -68,12 +74,14 @@ final class PlayerCoordinator {
             self.queue = []
             self.queueIndex = 0
         }
-        let resumeTicks = fromBeginning ? nil : item.resumeTicks
+        let resumeTicks = startTicks ?? (fromBeginning ? nil : item.resumeTicks)
+        currentItemId = item.id
         tune(title: item.displayTitle, subtitle: item.posterSubtitle, live: false) { [weak self] in
             guard let self else { throw JellyfinError.noMediaSource }
             let stream = try await client.startVideoStream(
                 itemId: item.id,
                 startTimeTicks: resumeTicks,
+                mediaSourceId: mediaSourceId,
                 audioStreamIndex: audioStreamIndex,
                 subtitleStreamIndex: subtitleStreamIndex)
             let offset: Int64 = stream.playMethod == "Transcode" ? (resumeTicks ?? 0) : 0
@@ -88,6 +96,7 @@ final class PlayerCoordinator {
         self.settings = settings
         self.queue = []
         self.queueIndex = 0
+        currentItemId = channel.id
         let subtitleText = channel.currentProgram?.value.name
         tune(title: channel.displayTitle, subtitle: subtitleText, live: true) {
             let stream = try await client.startLiveStream(channelId: channel.id)
@@ -271,6 +280,7 @@ final class PlayerCoordinator {
         state = .idle
         title = ""
         subtitle = nil
+        currentItemId = nil
     }
 
     private func teardownCurrent(finalTicks: Int64) {

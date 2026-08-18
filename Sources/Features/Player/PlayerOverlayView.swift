@@ -5,6 +5,8 @@ import SwiftUI
 /// from AVKit; custom chrome for close/next/previous).
 struct PlayerOverlayView: View {
     @Environment(PlayerCoordinator.self) private var coordinator
+    @Environment(AppState.self) private var app
+    @State private var showGuide = false
 
     var body: some View {
         ZStack {
@@ -46,6 +48,32 @@ struct PlayerOverlayView: View {
         #if os(macOS)
         .onExitCommand { coordinator.dismiss() }
         #endif
+        .sheet(isPresented: $showGuide) {
+            NavigationStack {
+                GuideView(onChannelSelected: { channel in
+                    showGuide = false
+                    if let client = app.client {
+                        coordinator.playChannel(channel, client: client, settings: app.settings)
+                    }
+                })
+                .navigationTitle("TV Guide")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { showGuide = false }
+                    }
+                }
+                #else
+                .toolbar {
+                    Button("Close") { showGuide = false }
+                }
+                #endif
+            }
+            #if os(macOS)
+            .frame(minWidth: 900, minHeight: 560)
+            #endif
+        }
     }
 
     private var chrome: some View {
@@ -79,6 +107,11 @@ struct PlayerOverlayView: View {
 
                 Spacer()
 
+                if coordinator.isLive {
+                    queueButton(systemImage: "rectangle.grid.1x2") {
+                        showGuide = true
+                    }
+                }
                 if coordinator.hasPreviousInQueue {
                     queueButton(systemImage: "backward.end.fill") {
                         coordinator.playPreviousInQueue()

@@ -7,8 +7,16 @@ struct MediaRow: View {
     var style: MediaCard.Style = .poster
     var cardWidth: CGFloat?
 
+    @Environment(AppState.self) private var app
+
     private var resolvedWidth: CGFloat {
-        cardWidth ?? (style == .poster ? 140 : 240)
+        let base: CGFloat
+        switch style {
+        case .poster: base = 140
+        case .thumb: base = 240
+        case .square: base = 150
+        }
+        return (cardWidth ?? base) * app.settings.posterScale.factor
     }
 
     var body: some View {

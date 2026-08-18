@@ -429,3 +429,19 @@ struct MediaStream: Codable, Hashable {
         case aspectRatio = "AspectRatio"
     }
 }
+
+// MARK: - Filters
+
+struct FilterValues: Codable {
+    var genres: [String]?
+    var tags: [String]?
+    var officialRatings: [String]?
+    var years: [Int]?
+
+    enum CodingKeys: String, CodingKey {
+        case genres = "Genres"
+        case tags = "Tags"
+        case officialRatings = "OfficialRatings"
+        case years = "Years"
+    }
+}

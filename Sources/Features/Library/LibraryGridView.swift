@@ -33,12 +33,42 @@ final class LibraryGridModel {
     var ascending = true
     var favoritesOnly = false
     var unplayedOnly = false
+    var selectedGenres: Set<String> = []
+    var selectedYears: Set<Int> = []
+    var selectedRatings: Set<String> = []
+    var selectedTags: Set<String> = []
 
     private(set) var items: [BaseItem] = []
     private(set) var total: Int?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var hasLoaded = false
+    private(set) var availableFilters: FilterValues?
+
+    var activeFilterCount: Int {
+        (favoritesOnly ? 1 : 0) + (unplayedOnly ? 1 : 0)
+            + selectedGenres.count + selectedYears.count
+            + selectedRatings.count + selectedTags.count
+    }
+
+    func clearFilters() {
+        favoritesOnly = false
+        unplayedOnly = false
+        selectedGenres = []
+        selectedYears = []
+        selectedRatings = []
+        selectedTags = []
+    }
+
+    func loadAvailableFilters(client: JellyfinClient) async {
+        guard availableFilters == nil else { return }
+        availableFilters = try? await client.filters(
+            parentId: container.id, includeItemTypes: filterItemTypes)
+    }
+
+    private var filterItemTypes: [String] {
+        includeItemTypes
+    }
 
     private let pageSize = 100
     private var fetchSequence = 0
@@ -129,6 +159,10 @@ final class LibraryGridModel {
         if favoritesOnly { filters.append("IsFavorite") }
         if unplayedOnly { filters.append("IsUnplayed") }
         query.filters = filters
+        query.genres = Array(selectedGenres)
+        query.years = Array(selectedYears)
+        query.officialRatings = Array(selectedRatings)
+        query.tags = Array(selectedTags)
         return try await client.items(query)
     }
 
@@ -140,12 +174,16 @@ final class LibraryGridModel {
 struct LibraryGridView: View {
     @Environment(AppState.self) private var app
     @State private var model: LibraryGridModel
+    @State private var showFilters = false
 
     init(container: BaseItem) {
         _model = State(initialValue: LibraryGridModel(container: container))
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 130, maximum: 190), spacing: 14)]
+    private var columns: [GridItem] {
+        let factor = app.settings.posterScale.factor
+        return [GridItem(.adaptive(minimum: 130 * factor, maximum: 195 * factor), spacing: 14)]
+    }
 
     var body: some View {
         Group {
@@ -167,6 +205,12 @@ struct LibraryGridView: View {
             }
         }
         .refreshable { await reload() }
+        .sheet(isPresented: $showFilters, onDismiss: { Task { await reload() } }) {
+            LibraryFilterSheet(model: model)
+                #if os(macOS)
+                .frame(minWidth: 420, minHeight: 520)
+                #endif
+        }
     }
 
     private func reload() async {
@@ -201,31 +245,48 @@ struct LibraryGridView: View {
                     description: Text("No items match the current filters."))
             }
         }
+        // Pinch adjusts the global poster size (Fladder's pinch-to-zoom).
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onEnded { value in
+                    if value.magnification > 1.15, let larger = app.settings.posterScale.larger {
+                        withAnimation { app.settings.posterScale = larger }
+                    } else if value.magnification < 0.87, let smaller = app.settings.posterScale.smaller {
+                        withAnimation { app.settings.posterScale = smaller }
+                    }
+                })
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Picker("Sort by", selection: $model.sort) {
-                    ForEach(LibraryGridModel.Sort.allCases) { sort in
-                        Text(sort.label).tag(sort)
+            HStack(spacing: 4) {
+                Menu {
+                    Picker("Sort by", selection: $model.sort) {
+                        ForEach(LibraryGridModel.Sort.allCases) { sort in
+                            Text(sort.label).tag(sort)
+                        }
                     }
+                    Picker("Order", selection: $model.ascending) {
+                        Text("Ascending").tag(true)
+                        Text("Descending").tag(false)
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down.circle")
                 }
-                Picker("Order", selection: $model.ascending) {
-                    Text("Ascending").tag(true)
-                    Text("Descending").tag(false)
+
+                Button {
+                    showFilters = true
+                } label: {
+                    Label(
+                        model.activeFilterCount > 0 ? "Filters (\(model.activeFilterCount))" : "Filters",
+                        systemImage: model.activeFilterCount > 0
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
                 }
-                Divider()
-                Toggle("Favorites only", isOn: $model.favoritesOnly)
-                Toggle("Unwatched only", isOn: $model.unplayedOnly)
-            } label: {
-                Label("Sort & Filter", systemImage: "line.3.horizontal.decrease.circle")
             }
             .onChange(of: model.sort) { Task { await reload() } }
             .onChange(of: model.ascending) { Task { await reload() } }
-            .onChange(of: model.favoritesOnly) { Task { await reload() } }
-            .onChange(of: model.unplayedOnly) { Task { await reload() } }
         }
     }
 }

@@ -66,6 +66,10 @@ struct PlayControls: View {
     var playTarget: BaseItem? = nil
     /// Queue for auto-advance (season episodes).
     var queue: [BaseItem] = []
+    /// Pre-play selections from TrackSelectionRow.
+    var mediaSourceId: String? = nil
+    var audioStreamIndex: Int? = nil
+    var subtitleStreamIndex: Int? = nil
     var onUserDataChanged: (() -> Void)? = nil
 
     @Environment(AppState.self) private var app
@@ -120,10 +124,15 @@ struct PlayControls: View {
 
     private func start(target: BaseItem, fromBeginning: Bool) {
         guard let client = app.client else { return }
+        // Subtitle -1 means the user explicitly chose Off; don't send an index.
+        let subtitle = (subtitleStreamIndex ?? -1) >= 0 ? subtitleStreamIndex : nil
         player.play(
             item: target,
             queue: queue,
             fromBeginning: fromBeginning,
+            audioStreamIndex: target.id == item.id ? audioStreamIndex : nil,
+            subtitleStreamIndex: target.id == item.id ? subtitle : nil,
+            mediaSourceId: target.id == item.id ? mediaSourceId : nil,
             client: client,
             settings: app.settings)
     }
