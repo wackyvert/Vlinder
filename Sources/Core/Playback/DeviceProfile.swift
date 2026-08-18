@@ -233,14 +233,6 @@ struct PlaybackStopBody: Encodable {
     }
 }
 
-struct CloseLiveStreamBody: Encodable {
-    var liveStreamId: String
-
-    enum CodingKeys: String, CodingKey {
-        case liveStreamId = "LiveStreamId"
-    }
-}
-
 struct ProgramsRequestBody: Encodable {
     /// nil = all channels (the guide's paged bulk fetch).
     var channelIds: [String]?

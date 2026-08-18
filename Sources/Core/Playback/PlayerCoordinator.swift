@@ -190,8 +190,7 @@ final class PlayerCoordinator {
                     self.reportStart()
                     self.startProgressLoop()
                 case .failed:
-                    let message = item.error?.localizedDescription ?? "Playback failed."
-                    self.state = .failed(message)
+                    self.handlePlaybackFailure(error: item.error, item: item)
                 default:
                     break
                 }
@@ -208,11 +207,53 @@ final class PlayerCoordinator {
         failObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
         ) { [weak self] notification in
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            let failedItem = notification.object as? AVPlayerItem
             Task { @MainActor [weak self] in
-                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                self?.state = .failed(error?.localizedDescription ?? "Playback failed.")
+                self?.handlePlaybackFailure(error: error, item: failedItem)
             }
         }
+    }
+
+    /// A dead player must not keep server resources allocated: report stopped
+    /// and close the live stream immediately, then show the error. Dismissing
+    /// later is a no-op on the already-released stream.
+    private func handlePlaybackFailure(error: Error?, item: AVPlayerItem?) {
+        guard active != nil else {
+            if case .failed = state {} else {
+                state = .failed(Self.describePlaybackError(error, item: item))
+            }
+            return
+        }
+        let message = Self.describePlaybackError(error, item: item)
+        reportTask?.cancel()
+        reportTask = nil
+        player?.pause()
+        releaseServerResources(finalTicks: currentPositionTicks())
+        state = .failed(message)
+        #if DEBUG
+        print("[Vlinder] playback failure: \(message)")
+        #endif
+    }
+
+    /// "Operation stopped" alone is useless; include the redacted NSError
+    /// domain/code and the last AVPlayerItem error-log event.
+    private static func describePlaybackError(_ error: Error?, item: AVPlayerItem?) -> String {
+        var parts: [String] = []
+        if let error {
+            let nsError = error as NSError
+            parts.append("\(nsError.localizedDescription) [\(nsError.domain) \(nsError.code)]")
+        } else {
+            parts.append("Playback failed.")
+        }
+        if let event = item?.errorLog()?.events.last {
+            var detail = "\(event.errorDomain) \(event.errorStatusCode)"
+            if let comment = event.errorComment, !comment.isEmpty {
+                detail += " — \(comment)"
+            }
+            parts.append(JellyfinClient.redactingAPIKey(detail))
+        }
+        return parts.joined(separator: "\n")
     }
 
     private func handlePlaybackEnded() {
@@ -294,7 +335,12 @@ final class PlayerCoordinator {
         failObserver = nil
         player?.pause()
         player = nil
+        releaseServerResources(finalTicks: finalTicks)
+    }
 
+    /// Reports stopped and frees the tuner/encoder server-side. Safe to call
+    /// more than once — the first call consumes `active`.
+    private func releaseServerResources(finalTicks: Int64) {
         guard let client, let active else { return }
         self.active = nil
         let stopBody = PlaybackStopBody(

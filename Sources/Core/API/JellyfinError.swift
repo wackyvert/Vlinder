@@ -9,6 +9,7 @@ enum JellyfinError: LocalizedError {
     case quickConnectExpired
     case decoding(String)
     case noMediaSource
+    case liveStreamUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +29,8 @@ enum JellyfinError: LocalizedError {
             return "Unexpected server response (\(detail))."
         case .noMediaSource:
             return "The server did not return a playable stream."
+        case .liveStreamUnavailable:
+            return "The server did not return an HLS stream for this channel."
         }
     }
 }

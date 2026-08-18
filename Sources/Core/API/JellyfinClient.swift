@@ -496,39 +496,30 @@ final class JellyfinClient: @unchecked Sendable {
         var isLive: Bool
     }
 
-    /// Live TV stream resolution — ported verbatim from Tuner's `startStream(channelId:)`,
-    /// which works markedly better than Fladder's approach against this server.
-    /// AutoOpenLiveStream makes the server open the tuner and return a LiveStreamId in
-    /// one round trip; prefer the server's TranscodingUrl, else fall back to stream.ts.
+    /// Live TV stream resolution — Tuner's `startStream(channelId:)` with one
+    /// AVPlayer-mandated deviation: direct play/stream are disabled in the
+    /// REQUEST (profile untouched) so the server always returns an HLS
+    /// TranscodingUrl. AVPlayer accepts an endless raw MPEG-TS HTTP stream,
+    /// reads a few KB, and aborts before readyToPlay ("operation stopped"),
+    /// so there is deliberately no stream.ts fallback for live playback.
     func startLiveStream(channelId: String) async throws -> ResolvedStream {
         let userId = try requireUserId()
-        let body = PlaybackInfoBody(deviceProfile: .live, autoOpenLiveStream: true)
+        var body = PlaybackInfoBody(deviceProfile: .live, autoOpenLiveStream: true)
+        body.enableDirectPlay = false
+        body.enableDirectStream = false
         let info: PlaybackInfoResponse = try await sendDecoding(
             method: .post, path: "/Items/\(channelId)/PlaybackInfo",
             query: [URLQueryItem(name: "userId", value: userId)],
             body: body,
             endpoint: "PlaybackInfo(live)")
         guard let source = info.mediaSources?.first else { throw JellyfinError.noMediaSource }
-
-        let url: URL
-        if let transcodingPath = source.transcodingUrl, !transcodingPath.isEmpty {
-            url = appendingAPIKeyIfMissing(to: try serverRelativeURL(transcodingPath), token: accessToken)
-        } else {
-            var query = [URLQueryItem(name: "static", value: "true")]
-            if let sourceId = source.id, !sourceId.isEmpty {
-                query.append(URLQueryItem(name: "mediaSourceId", value: sourceId))
-            }
-            if let token = accessToken, !token.isEmpty {
-                query.append(URLQueryItem(name: "api_key", value: token))
-            }
-            if let liveStreamId = source.liveStreamId, !liveStreamId.isEmpty {
-                query.append(URLQueryItem(name: "liveStreamId", value: liveStreamId))
-            }
-            url = try apiURL(path: "/Videos/\(channelId)/stream.ts", query: query)
+        guard let transcodingPath = source.transcodingUrl, !transcodingPath.isEmpty else {
+            throw JellyfinError.liveStreamUnavailable
         }
+        let url = appendingAPIKeyIfMissing(to: try serverRelativeURL(transcodingPath), token: accessToken)
         #if DEBUG
-        print("[Vlinder] live stream url: \(url.absoluteString)")
-        print("[Vlinder] transcodingUrl=\(source.transcodingUrl ?? "nil") liveStreamId=\(source.liveStreamId ?? "nil") container=\(source.container ?? "nil")")
+        print("[Vlinder] live stream url: \(Self.redactingAPIKey(url.absoluteString))")
+        print("[Vlinder] liveStreamId=\(source.liveStreamId ?? "nil") container=\(source.container ?? "nil")")
         #endif
         return ResolvedStream(
             url: url,
@@ -538,6 +529,14 @@ final class JellyfinClient: @unchecked Sendable {
             liveStreamId: source.liveStreamId,
             mediaSource: source,
             isLive: true)
+    }
+
+    /// Strips credential values from URLs/strings destined for logs.
+    static func redactingAPIKey(_ string: String) -> String {
+        string.replacingOccurrences(
+            of: #"(?i)(api_key=)[^&\s"]+"#,
+            with: "$1REDACTED",
+            options: .regularExpression)
     }
 
     /// VOD stream resolution: ask PlaybackInfo with our device profile, then prefer
@@ -565,7 +564,7 @@ final class JellyfinClient: @unchecked Sendable {
         guard let source = info.mediaSources?.first(where: { $0.id == mediaSourceId }) ?? info.mediaSources?.first
         else { throw JellyfinError.noMediaSource }
         #if DEBUG
-        print("[Vlinder] vod source: container=\(source.container ?? "nil") directPlay=\(source.supportsDirectPlay ?? false) directStream=\(source.supportsDirectStream ?? false) transcodingUrl=\(source.transcodingUrl ?? "nil")")
+        print("[Vlinder] vod source: container=\(source.container ?? "nil") directPlay=\(source.supportsDirectPlay ?? false) directStream=\(source.supportsDirectStream ?? false) transcodingUrl=\(Self.redactingAPIKey(source.transcodingUrl ?? "nil"))")
         #endif
 
         // Direct play only when no specific tracks were requested; AVPlayer can't
@@ -618,9 +617,13 @@ final class JellyfinClient: @unchecked Sendable {
         try? await send(.post, path: "/Sessions/Playing/Stopped", body: body)
     }
 
-    /// Frees the server-side tuner after live playback (Tuner pattern).
+    /// Frees the server-side stream consumer after live playback.
+    /// Jellyfin (10.11 included) takes liveStreamId as a QUERY parameter — a
+    /// JSON body returns HTTP 400 and leaks the stream on the server.
     func closeLiveStream(liveStreamId: String) async {
-        try? await send(.post, path: "/LiveStreams/Close", body: CloseLiveStreamBody(liveStreamId: liveStreamId))
+        try? await send(
+            .post, path: "/LiveStreams/Close",
+            query: [URLQueryItem(name: "liveStreamId", value: liveStreamId)])
     }
 
     func stopActiveEncodings(playSessionId: String?) async {
