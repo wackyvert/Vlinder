@@ -532,9 +532,10 @@ final class JellyfinClient: @unchecked Sendable {
     }
 
     /// Strips credential values from URLs/strings destined for logs.
+    /// Matches api_key (legacy) and ApiKey (10.11 TranscodingUrl spelling).
     static func redactingAPIKey(_ string: String) -> String {
         string.replacingOccurrences(
-            of: #"(?i)(api_key=)[^&\s"]+"#,
+            of: #"(?i)((?:api_key|apikey)=)[^&\s"]+"#,
             with: "$1REDACTED",
             options: .regularExpression)
     }

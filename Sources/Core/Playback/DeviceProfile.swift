@@ -49,23 +49,27 @@ struct DeviceProfile: Encodable {
         subtitleProfiles: [],
         codecProfiles: [])
 
-    /// VOD profile: Tuner's base plus audio direct play and HLS-VTT subtitles
-    /// so AVPlayer's native subtitle menu works for library content.
+    /// VOD profile. Transcoding targets fMP4 HLS, not TS: Apple's HLS stack
+    /// requires fragmented-MP4 segments for HEVC — an HEVC remux into TS
+    /// "plays" with the video track silently dropped (audio-only glyph).
+    /// fMP4 lets the server remux HEVC MKVs without re-encoding. Raw TS is
+    /// also excluded from direct play here (endless-TS AVPlayer hazard).
     static let vod = DeviceProfile(
         maxStreamingBitrate: 120_000_000,
         directPlayProfiles: [
             DirectPlayProfile(
-                container: "mp4,m4v,mov,ts,mpegts",
+                container: "mp4,m4v,mov",
                 type: "Video",
                 videoCodec: "h264,hevc",
                 audioCodec: "aac,ac3,eac3"
             ),
             DirectPlayProfile(container: "mp3", type: "Audio", videoCodec: nil, audioCodec: "mp3"),
             DirectPlayProfile(container: "m4a,m4b", type: "Audio", videoCodec: nil, audioCodec: "aac,alac"),
+            DirectPlayProfile(container: "flac", type: "Audio", videoCodec: nil, audioCodec: "flac"),
         ],
         transcodingProfiles: [
             TranscodingProfile(
-                container: "ts",
+                container: "mp4",
                 type: "Video",
                 videoCodec: "h264,hevc",
                 audioCodec: "aac,ac3,eac3",
@@ -74,7 +78,18 @@ struct DeviceProfile: Encodable {
                 maxAudioChannels: "6",
                 minSegments: 1,
                 breakOnNonKeyFrames: true
-            )
+            ),
+            TranscodingProfile(
+                container: "mp3",
+                type: "Audio",
+                videoCodec: nil,
+                audioCodec: "mp3",
+                streamProtocol: "http",
+                context: "Streaming",
+                maxAudioChannels: nil,
+                minSegments: nil,
+                breakOnNonKeyFrames: nil
+            ),
         ],
         subtitleProfiles: [
             SubtitleProfile(format: "vtt", method: "Hls"),
