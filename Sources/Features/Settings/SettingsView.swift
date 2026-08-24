@@ -44,6 +44,7 @@ struct SettingsView: View {
 
             Section("About") {
                 LabeledContent("Vlinder", value: appVersion)
+                LabeledContent("Built", value: buildDate)
                 Text("A native Jellyfin viewer for Mac and iOS, built to Fladder's spec with Tuner's live TV engine.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -241,5 +242,14 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(version) (\(build))"
+    }
+
+    /// Executable modification date — an unambiguous "which build am I running".
+    private var buildDate: String {
+        guard let url = Bundle.main.executableURL,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date
+        else { return "—" }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 }
