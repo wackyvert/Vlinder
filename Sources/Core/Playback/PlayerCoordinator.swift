@@ -170,7 +170,14 @@ final class PlayerCoordinator {
         let asset = AVURLAsset(url: stream.stream.url)
         let item = AVPlayerItem(asset: asset)
         let player = AVPlayer(playerItem: item)
+        // macOS: external playback engaging (e.g. an AirPlay audio route)
+        // replaces local video with a placeholder glyph; keep rendering local.
+        // iOS keeps it on for the real AirPlay button in the player UI.
+        #if os(macOS)
+        player.allowsExternalPlayback = false
+        #else
         player.allowsExternalPlayback = true
+        #endif
         self.player = player
 
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -189,6 +196,13 @@ final class PlayerCoordinator {
                     self.state = .playing
                     self.reportStart()
                     self.startProgressLoop()
+                    #if DEBUG
+                    let size = item.presentationSize
+                    let tracks = item.tracks.map { track in
+                        "\(track.assetTrack?.mediaType.rawValue ?? "?"):\(track.isEnabled ? "on" : "off")"
+                    }.joined(separator: ",")
+                    NSLog("[Vlinder] ready presentation=%.0fx%.0f tracks=%@", size.width, size.height, tracks)
+                    #endif
                 case .failed:
                     self.handlePlaybackFailure(error: item.error, item: item)
                 default:

@@ -12,7 +12,11 @@ struct PlayerOverlayView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let player = coordinator.player, coordinator.state == .playing {
+            // Attach the surface as soon as the player exists: AVKit's views
+            // handle the pre-ready phase themselves, and attaching early avoids
+            // the HLS video-selection quirks of a late-attached layer.
+            if let player = coordinator.player,
+               coordinator.state == .playing || coordinator.state == .loading {
                 VideoSurface(player: player)
                     .ignoresSafeArea()
             }
@@ -150,6 +154,9 @@ struct VideoSurface: NSViewRepresentable {
         view.showsFullScreenToggleButton = true
         view.allowsPictureInPicturePlayback = true
         view.player = player
+        #if DEBUG
+        context.coordinator.beginDiagnostics(for: view)
+        #endif
         return view
     }
 
@@ -157,6 +164,30 @@ struct VideoSurface: NSViewRepresentable {
         if view.player !== player {
             view.player = player
         }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// DEBUG-only: periodically logs whether AVPlayerView is actually giving
+    /// the video any pixels (videoBounds zero = rendering no video).
+    final class Coordinator {
+        private var timer: Timer?
+
+        func beginDiagnostics(for view: AVPlayerView) {
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak view] _ in
+                guard let view else { return }
+                let bounds = view.videoBounds
+                let size = view.player?.currentItem?.presentationSize ?? .zero
+                NSLog("[Vlinder] AVPlayerView videoBounds=%.0fx%.0f frame=%.0fx%.0f inWindow=%d item=%.0fx%.0f",
+                      bounds.width, bounds.height,
+                      view.frame.width, view.frame.height,
+                      view.window != nil ? 1 : 0,
+                      size.width, size.height)
+            }
+        }
+
+        deinit { timer?.invalidate() }
     }
 }
 #else

@@ -95,7 +95,22 @@ struct DeviceProfile: Encodable {
             SubtitleProfile(format: "vtt", method: "Hls"),
             SubtitleProfile(format: "vtt", method: "External"),
         ],
-        codecProfiles: [])
+        codecProfiles: [
+            // AVFoundation only decodes hvc1/dvh1-tagged HEVC; hev1-tagged
+            // files (common in mov/mp4 rips) direct-play as audio-only. Deny
+            // direct play for those so the server remuxes with -tag hvc1
+            // (stream copy, no re-encode) — same rule jellyfin-web applies
+            // to Safari.
+            CodecProfile(
+                type: "Video",
+                codec: "hevc",
+                conditions: [
+                    ProfileCondition(
+                        condition: "EqualsAny",
+                        property: "VideoCodecTag",
+                        value: "hvc1|dvh1")
+                ])
+        ])
 }
 
 struct DirectPlayProfile: Encodable {
@@ -150,10 +165,26 @@ struct SubtitleProfile: Encodable {
 struct CodecProfile: Encodable {
     var type: String?
     var codec: String?
+    var conditions: [ProfileCondition]?
 
     enum CodingKeys: String, CodingKey {
         case type = "Type"
         case codec = "Codec"
+        case conditions = "Conditions"
+    }
+}
+
+struct ProfileCondition: Encodable {
+    var condition: String
+    var property: String
+    var value: String
+    var isRequired: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case condition = "Condition"
+        case property = "Property"
+        case value = "Value"
+        case isRequired = "IsRequired"
     }
 }
 
