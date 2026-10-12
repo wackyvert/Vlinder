@@ -11,3 +11,7 @@ Vlinder.xcodeproj/
 
 # macOS
 .DS_Store
+
+# Design screenshots and reference captures stay local; the specs are tracked.
+Design/**/*.png
+Design/**/*.webp

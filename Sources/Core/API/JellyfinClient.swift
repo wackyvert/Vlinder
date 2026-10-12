@@ -431,7 +431,7 @@ final class JellyfinClient: @unchecked Sendable {
 
     // MARK: - Live TV
 
-    func liveTvChannels() async throws -> [BaseItem] {
+    func liveTvChannels(includeCurrentProgram: Bool = true) async throws -> [BaseItem] {
         let userId = try requireUserId()
         let result: ItemsResult = try await sendDecoding(
             method: .get, path: "/LiveTv/Channels",
@@ -439,7 +439,7 @@ final class JellyfinClient: @unchecked Sendable {
                 URLQueryItem(name: "userId", value: userId),
                 URLQueryItem(name: "enableImages", value: "true"),
                 URLQueryItem(name: "enableUserData", value: "true"),
-                URLQueryItem(name: "addCurrentProgram", value: "true"),
+                URLQueryItem(name: "addCurrentProgram", value: includeCurrentProgram ? "true" : "false"),
                 URLQueryItem(name: "fields", value: "ChannelInfo"),
             ],
             endpoint: "LiveTv/Channels")
@@ -454,11 +454,17 @@ final class JellyfinClient: @unchecked Sendable {
         from: Date,
         to: Date,
         startIndex: Int? = nil,
-        limit: Int? = nil
+        limit: Int? = nil,
+        enableImages: Bool = false
     ) async throws -> [BaseItem] {
         var body = ProgramsRequestBody(channelIds: channelIds, minEndDate: from, maxStartDate: to)
         body.startIndex = startIndex
         body.limit = limit
+        if enableImages {
+            body.enableImages = true
+            body.imageTypeLimit = 1
+            body.enableImageTypes = ["Primary", "Thumb", "Backdrop"]
+        }
         let result: ItemsResult = try await sendDecoding(
             method: .post, path: "/LiveTv/Programs", body: body, endpoint: "LiveTv/Programs")
         return result.items ?? []

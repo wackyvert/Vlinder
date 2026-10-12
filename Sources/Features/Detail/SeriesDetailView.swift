@@ -85,7 +85,11 @@ struct SeriesDetailView: View {
                 content
             }
         }
+        #if os(tvOS)
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .navigationTitle(model.series.displayTitle)
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -113,14 +117,18 @@ struct SeriesDetailView: View {
                         })
                     OverviewText(item: model.series)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, DetailMetrics.edge)
 
                 episodesSection
 
                 PeopleRow(people: model.series.people ?? [])
 
                 if !model.similar.isEmpty {
+                    #if os(tvOS)
+                    TVHomeRow(title: "More Like This", items: model.similar)
+                    #else
                     MediaRow(title: "More Like This", items: model.similar)
+                    #endif
                 }
             }
             .padding(.bottom, 32)
@@ -144,19 +152,19 @@ struct SeriesDetailView: View {
                     .pickerStyle(.menu)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, DetailMetrics.edge)
 
             if model.episodes.isEmpty, model.hasLoaded {
                 Text("No episodes in this season.")
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, DetailMetrics.edge)
             } else {
                 LazyVStack(spacing: 14) {
                     ForEach(model.episodes) { episode in
                         EpisodeRow(episode: episode, queue: model.episodes)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, DetailMetrics.edge)
             }
         }
     }
@@ -184,17 +192,24 @@ struct EpisodeRow: View {
     @Environment(PlayerCoordinator.self) private var player
 
     var body: some View {
+        #if os(tvOS)
+        // One focus target per row. Select opens the episode; the still is a
+        // separate card that plays at once, as the Mac's hover play button does.
+        HStack(alignment: .top, spacing: 28) {
+            Button { play() } label: { still }
+                .buttonStyle(.card)
+            NavigationLink(value: episode) {
+                texts
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(EpisodeTextButtonStyle())
+        }
+        #else
         NavigationLink(value: episode) {
             HStack(alignment: .top, spacing: 12) {
-                RemoteImage(url: app.client?.imageURL(episode.thumbRef, maxWidth: 480))
-                    .frame(width: 164, height: 92)
-                    .clipped()
-                    .overlay(alignment: .bottom) {
-                        if let progress = episode.progressFraction {
-                            ProgressBar(fraction: progress)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                still
                     .overlay(alignment: .center) {
                         Button {
                             play()
@@ -205,7 +220,37 @@ struct EpisodeRow: View {
                         }
                         .buttonStyle(.plain)
                     }
+                texts
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(.plain)
+        #endif
+    }
 
+    #if os(tvOS)
+    private let stillWidth: CGFloat = 300
+    private let stillHeight: CGFloat = 169
+    private let stillRadius: CGFloat = TVHome.cardCornerRadius
+    #else
+    private let stillWidth: CGFloat = 164
+    private let stillHeight: CGFloat = 92
+    private let stillRadius: CGFloat = 8
+    #endif
+
+    private var still: some View {
+        RemoteImage(url: app.client?.imageURL(episode.thumbRef, maxWidth: Int(stillWidth * 3)))
+            .frame(width: stillWidth, height: stillHeight)
+            .clipped()
+            .overlay(alignment: .bottom) {
+                if let progress = episode.progressFraction {
+                    ProgressBar(fraction: progress)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: stillRadius, style: .continuous))
+    }
+
+    private var texts: some View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         if let index = episode.indexNumber {
@@ -234,10 +279,6 @@ struct EpisodeRow: View {
                             .lineLimit(3)
                     }
                 }
-                Spacer(minLength: 0)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     private func play() {
@@ -249,3 +290,27 @@ struct EpisodeRow: View {
             settings: app.settings)
     }
 }
+
+#if os(tvOS)
+/// Text half of an episode row: a translucent slab when focused, nothing when
+/// not, so the remote's position is obvious without lifting a wall of text.
+private struct EpisodeTextButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        EpisodeTextButtonBody(configuration: configuration)
+    }
+}
+
+private struct EpisodeTextButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: TVHome.cardCornerRadius, style: .continuous)
+                    .fill(.white.opacity(isFocused ? 0.16 : 0)))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+    }
+}
+#endif

@@ -34,3 +34,13 @@ enum JellyfinError: LocalizedError {
         }
     }
 }
+
+extension Error {
+    /// True when this error is a cancelled task or a cancelled URL request.
+    var isCancellation: Bool {
+        self is CancellationError
+            || (self as? URLError)?.code == .cancelled
+            || (self as NSError).code == NSURLErrorCancelled
+                && (self as NSError).domain == NSURLErrorDomain
+    }
+}

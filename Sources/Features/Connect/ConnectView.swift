@@ -180,12 +180,12 @@ struct ConnectView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Spacer(minLength: 40)
-                VStack(spacing: 28) {
+                Spacer(minLength: TenFoot.isTV ? 20 : 40)
+                VStack(spacing: TenFoot.isTV ? 40 : 28) {
                     header
                     card
                 }
-                .frame(maxWidth: 440)
+                .frame(maxWidth: TenFoot.cardWidth)
                 .padding(.horizontal, 24)
                 Spacer(minLength: 60)
             }
@@ -200,6 +200,15 @@ struct ConnectView: View {
                 model.phase = .users
             }
             model.startDiscovery()
+            #if DEBUG
+            // -ConnectServer https://jf.example: probe straight away, so the
+            // screenshot harness can photograph the Quick Connect phase on a
+            // platform with no pointer or keyboard to drive the field.
+            if let server = UserDefaults.standard.string(forKey: "ConnectServer"), !server.isEmpty {
+                model.serverInput = server
+                Task { await model.connectToServer() }
+            }
+            #endif
         }
         .onDisappear { model.cancelQuickConnect() }
     }
@@ -207,7 +216,7 @@ struct ConnectView: View {
     private var header: some View {
         VStack(spacing: 8) {
             Image(systemName: "play.rectangle.on.rectangle.fill")
-                .font(.system(size: 44))
+                .font(.system(size: TenFoot.isTV ? 72 : 44))
                 .foregroundStyle(.tint)
             Text("Vlinder")
                 .font(.largeTitle.weight(.bold))
@@ -248,17 +257,30 @@ struct ConnectView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .padding(24)
+        .padding(TenFoot.cardPadding)
+        #if os(tvOS)
+        // `.thinMaterial` over the TV's black ground samples (0,0,0): the card
+        // had no visible bounds and its buttons looked pinned to nothing. Paint
+        // a real surface — a lifted grey with a hairline — so the 1040pt card
+        // reads as the object the controls belong to.
+        .frame(maxWidth: .infinity)
+        .background(Color.white.opacity(0.13), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 2)
+        }
+        #else
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        #endif
     }
 
     // MARK: - Saved accounts (Fladder's login user grid)
 
     private var accountGrid: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: TenFoot.cardSpacing) {
             Text("Who's watching?")
                 .font(.headline)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110, maximum: 150), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: TenFoot.isTV ? 260 : 110, maximum: TenFoot.isTV ? 320 : 150), spacing: TenFoot.isTV ? 28 : 12)], spacing: TenFoot.isTV ? 28 : 12) {
                 ForEach(app.accounts) { account in
                     Button {
                         app.adopt(session: account)
@@ -266,10 +288,10 @@ struct ConnectView: View {
                         VStack(spacing: 6) {
                             Circle()
                                 .fill(.tint.opacity(0.2))
-                                .frame(width: 54, height: 54)
+                                .frame(width: TenFoot.isTV ? 110 : 54, height: TenFoot.isTV ? 110 : 54)
                                 .overlay {
                                     Text(String((account.userName ?? "?").prefix(1)).uppercased())
-                                        .font(.title2.weight(.bold))
+                                        .font(TenFoot.isTV ? .system(size: 56, weight: .bold) : .title2.weight(.bold))
                                         .foregroundStyle(.tint)
                                 }
                             Text(account.userName ?? "User")
@@ -280,11 +302,11 @@ struct ConnectView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
-                        .padding(10)
+                        .padding(TenFoot.isTV ? 24 : 10)
                         .frame(maxWidth: .infinity)
                         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .tileButtonStyle()
                     .contextMenu {
                         Button("Remove account", role: .destructive) {
                             app.removeAccount(accountId: account.id)
@@ -302,9 +324,23 @@ struct ConnectView: View {
     }
 
     private var serverEntry: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: TenFoot.cardSpacing) {
+            // On a TV the discovered servers lead: one click on the remote
+            // beats spelling an address on the on-screen keyboard. Pointer
+            // platforms keep the field first, as the Mac does.
+            if TenFoot.isTV {
+                discoveredServers
+                if !model.discovered.isEmpty {
+                    Divider()
+                    Text("Or enter an address")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
             TextField("jellyfin.example.com or 192.168.1.20:8096", text: $model.serverInput)
-                .textFieldStyle(.roundedBorder)
+                .fieldStyle()
                 .focused($serverFieldFocused)
                 .onSubmit { Task { await model.connectToServer() } }
                 #if os(iOS)
@@ -321,36 +357,8 @@ struct ConnectView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.serverInput.trimmingCharacters(in: .whitespaces).isEmpty)
 
-            if !model.discovered.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Found on your network")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(model.discovered) { server in
-                        Button {
-                            model.serverInput = server.address
-                            Task { await model.connectToServer() }
-                        } label: {
-                            HStack {
-                                Image(systemName: "server.rack")
-                                VStack(alignment: .leading) {
-                                    Text(server.name)
-                                        .font(.callout.weight(.medium))
-                                    Text(server.address)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if !TenFoot.isTV {
+                discoveredServers
             }
 
             if showsSavedAccounts, !app.accounts.isEmpty {
@@ -360,21 +368,65 @@ struct ConnectView: View {
                 .font(.callout)
             }
         }
-        .onAppear { serverFieldFocused = true }
+        .onAppear {
+            // Auto-focusing the field is a pointer-platform courtesy; on tvOS
+            // the focus engine should land on the first discovered server.
+            if !TenFoot.isTV { serverFieldFocused = true }
+        }
+    }
+
+    @ViewBuilder
+    private var discoveredServers: some View {
+        if !model.discovered.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Found on your network")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(model.discovered) { server in
+                    Button {
+                        model.serverInput = server.address
+                        Task { await model.connectToServer() }
+                    } label: {
+                        HStack(spacing: TenFoot.isTV ? 24 : 8) {
+                            Image(systemName: "server.rack")
+                            VStack(alignment: .leading) {
+                                Text(server.name)
+                                    .font(.callout.weight(.medium))
+                                Text(server.address)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .rowButtonStyle()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder
     private func quickConnect(code: String?) -> some View {
-        VStack(spacing: 14) {
+        VStack(spacing: TenFoot.cardSpacing) {
             Text("Quick Connect")
                 .font(.headline)
             if let code {
+                // Ten feet away the code is the whole screen's job: Fladder
+                // and the Jellyfin TV apps show it at poster height.
                 Text(code)
-                    .font(.system(size: 42, weight: .bold, design: .monospaced))
-                    .kerning(6)
-                    .textSelection(.enabled)
+                    .font(.system(size: TenFoot.isTV ? 168 : 42, weight: .bold, design: .monospaced))
+                    .kerning(TenFoot.isTV ? 18 : 6)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .selectableText()
                 Text("Enter this code in Jellyfin on another device:\nSettings → Quick Connect")
-                    .font(.footnote)
+                    .font(TenFoot.isTV ? .body : .footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 ProgressView()
@@ -402,15 +454,15 @@ struct ConnectView: View {
     }
 
     private var passwordForm: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: TenFoot.cardSpacing) {
             TextField("Username", text: $model.username)
-                .textFieldStyle(.roundedBorder)
+                .fieldStyle()
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 #endif
             SecureField("Password", text: $model.password)
-                .textFieldStyle(.roundedBorder)
+                .fieldStyle()
                 .onSubmit { Task { await model.signInWithPassword() } }
             Button {
                 Task { await model.signInWithPassword() }

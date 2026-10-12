@@ -1,5 +1,24 @@
 import SwiftUI
 
+/// Couch metrics shared by the detail screens; the Mac keeps its desk values.
+enum DetailMetrics {
+    #if os(tvOS)
+    static let edge: CGFloat = TVHome.margin
+    static let heroHeight: CGFloat = 620
+    static let titleSize: CGFloat = 64
+    static let logoWidth: CGFloat = 560
+    static let logoHeight: CGFloat = 170
+    /// tvOS's default horizontal safe-area inset (the overscan band).
+    static let overscan: CGFloat = 80
+    #else
+    static let edge: CGFloat = 20
+    static let heroHeight: CGFloat = 420
+    static let titleSize: CGFloat = 34
+    static let logoWidth: CGFloat = 320
+    static let logoHeight: CGFloat = 96
+    #endif
+}
+
 /// Backdrop hero + logo/title + metadata line, shared by movie/episode/series details
 /// (Fladder's DetailScaffold + OverviewHeader, reduced).
 struct DetailHeader: View {
@@ -10,7 +29,7 @@ struct DetailHeader: View {
         ZStack(alignment: .bottomLeading) {
             RemoteImage(url: app.client?.imageURL(item.backdropRef, maxWidth: 1600))
                 .aspectRatio(16 / 9, contentMode: .fill)
-                .frame(maxHeight: 420)
+                .frame(maxHeight: DetailMetrics.heroHeight)
                 .clipped()
             LinearGradient(
                 colors: [.clear, .clear, Color.black.opacity(0.72)],
@@ -19,18 +38,30 @@ struct DetailHeader: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let logoURL = app.client?.imageURL(item.logoRef, maxHeight: 220) {
                     RemoteImage(url: logoURL, contentMode: .fit)
-                        .frame(maxWidth: 320, maxHeight: 96, alignment: .leading)
+                        .frame(
+                            maxWidth: DetailMetrics.logoWidth, maxHeight: DetailMetrics.logoHeight,
+                            alignment: .leading)
                 } else {
                     Text(item.displayTitle)
-                        .font(.system(size: 34, weight: .bold))
+                        .font(.system(size: DetailMetrics.titleSize, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                 }
                 MetadataLine(item: item)
                     .foregroundStyle(.white.opacity(0.9))
             }
-            .padding(20)
+            .padding(DetailMetrics.edge)
+            #if os(tvOS)
+            // Keeps the title on the body text's left edge after the bleed below.
+            .padding(.horizontal, DetailMetrics.overscan)
+            #endif
         }
+        #if os(tvOS)
+        // The detail stack sits inside tvOS's overscan safe area; the hero
+        // alone reaches past it so the backdrop meets the screen edges the way
+        // the TV app's does, while the text keeps the safe inset.
+        .padding(.horizontal, -DetailMetrics.overscan)
+        #endif
     }
 }
 
@@ -82,6 +113,18 @@ struct PlayControls: View {
         HStack(spacing: 12) {
             if let target {
                 playButton(for: target)
+                #if os(tvOS)
+                // A long-press context menu is invisible from the couch; a
+                // resumable title gets its restart as a plain second button.
+                if target.resumeTicks != nil {
+                    Button {
+                        start(target: target, fromBeginning: true)
+                    } label: {
+                        Label("From Beginning", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                #endif
             }
             favoriteButton
             watchedButton
@@ -182,6 +225,30 @@ struct PeopleRow: View {
         if people.isEmpty {
             EmptyView()
         } else {
+            #if os(tvOS)
+            // A shelf the remote can't land on can't be scrolled either, so
+            // each portrait is a card that opens the person's filmography.
+            TVHomeShelf(title: "Cast & Crew") {
+                ForEach(people) { person in
+                    VStack(spacing: 10) {
+                        NavigationLink(value: BaseItem(
+                            id: person.id, name: person.name, type: .person,
+                            imageTags: person.primaryImageTag.map { ["Primary": $0] })) {
+                            portrait(person, size: 150)
+                        }
+                        .buttonStyle(.card)
+                        Text(person.name ?? "")
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                        Text(person.role ?? person.type ?? " ")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(width: 170)
+                }
+            }
+            #else
             VStack(alignment: .leading, spacing: 10) {
                 Text("Cast & Crew")
                     .font(.title3.weight(.semibold))
@@ -190,11 +257,7 @@ struct PeopleRow: View {
                     LazyHStack(alignment: .top, spacing: 16) {
                         ForEach(people) { person in
                             VStack(spacing: 6) {
-                                RemoteImage(url: app.client?.imageURL(
-                                    itemId: person.id, type: .primary,
-                                    tag: person.primaryImageTag, maxWidth: 200))
-                                    .frame(width: 76, height: 76)
-                                    .clipShape(Circle())
+                                portrait(person, size: 76)
                                 Text(person.name ?? "")
                                     .font(.caption.weight(.medium))
                                     .lineLimit(1)
@@ -209,7 +272,16 @@ struct PeopleRow: View {
                     .padding(.horizontal, 20)
                 }
             }
+            #endif
         }
+    }
+
+    private func portrait(_ person: ItemPerson, size: CGFloat) -> some View {
+        RemoteImage(url: app.client?.imageURL(
+            itemId: person.id, type: .primary,
+            tag: person.primaryImageTag, maxWidth: Int(size * 2)))
+            .frame(width: size, height: size)
+            .clipShape(Circle())
     }
 }
 

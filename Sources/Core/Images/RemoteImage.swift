@@ -2,8 +2,12 @@ import SwiftUI
 
 #if os(macOS)
 typealias PlatformImage = NSImage
+typealias PlatformFont = NSFont
+typealias PlatformFontWeight = NSFont.Weight
 #else
 typealias PlatformImage = UIImage
+typealias PlatformFont = UIFont
+typealias PlatformFontWeight = UIFont.Weight
 #endif
 
 extension Image {
@@ -55,6 +59,15 @@ struct RemoteImage: View {
     var contentMode: ContentMode = .fill
 
     @State private var image: PlatformImage?
+
+    init(url: URL?, contentMode: ContentMode = .fill) {
+        self.url = url
+        self.contentMode = contentMode
+        // Seed from the cache synchronously. `.task` does not run inside an
+        // ImageRenderer pass, so a screenshot would otherwise draw the
+        // placeholder over every logo it already has in memory.
+        _image = State(initialValue: url.flatMap { ImageLoader.shared.cached($0) })
+    }
 
     var body: some View {
         ZStack {

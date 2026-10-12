@@ -153,6 +153,11 @@ struct BaseItem: Codable, Identifiable, Hashable {
     var isKids: Bool?
     var isSeries: Bool?
     var isLive: Bool?
+    /// Jellyfin's "first showing" flag. XMLTV feeds do not set this: they mark
+    /// the opposite with <previously-shown>, which arrives as `isRepeat`.
+    var isNew: Bool?
+    var isRepeat: Bool?
+    var isPremiere: Bool?
 
     var isFolder: Bool?
     var mediaType: String?
@@ -216,6 +221,9 @@ struct BaseItem: Codable, Identifiable, Hashable {
         case isKids = "IsKids"
         case isSeries = "IsSeries"
         case isLive = "IsLive"
+        case isNew = "IsNew"
+        case isRepeat = "IsRepeat"
+        case isPremiere = "IsPremiere"
         case isFolder = "IsFolder"
         case mediaType = "MediaType"
         case locationType = "LocationType"

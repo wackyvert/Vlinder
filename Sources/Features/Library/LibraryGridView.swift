@@ -1,176 +1,9 @@
 import SwiftUI
-import Observation
 
-/// Paged, sortable item grid for a library view, folder, box set, or person —
+/// Paged, sortable item browser for a library view, folder, box set, or person —
 /// Fladder's "library search" surface, reduced to the viewer essentials.
-@MainActor
-@Observable
-final class LibraryGridModel {
-    enum Sort: String, CaseIterable, Identifiable {
-        case name = "SortName"
-        case dateAdded = "DateCreated"
-        case releaseDate = "PremiereDate,SortName"
-        case rating = "CommunityRating,SortName"
-        case runtime = "Runtime,SortName"
-        case random = "Random"
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .name: "Name"
-            case .dateAdded: "Date Added"
-            case .releaseDate: "Release Date"
-            case .rating: "Community Rating"
-            case .runtime: "Runtime"
-            case .random: "Random"
-            }
-        }
-    }
-
-    let container: BaseItem
-    var sort: Sort = .name
-    var ascending = true
-    var favoritesOnly = false
-    var unplayedOnly = false
-    var selectedGenres: Set<String> = []
-    var selectedYears: Set<Int> = []
-    var selectedRatings: Set<String> = []
-    var selectedTags: Set<String> = []
-
-    private(set) var items: [BaseItem] = []
-    private(set) var total: Int?
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
-    private(set) var hasLoaded = false
-    private(set) var availableFilters: FilterValues?
-
-    var activeFilterCount: Int {
-        (favoritesOnly ? 1 : 0) + (unplayedOnly ? 1 : 0)
-            + selectedGenres.count + selectedYears.count
-            + selectedRatings.count + selectedTags.count
-    }
-
-    func clearFilters() {
-        favoritesOnly = false
-        unplayedOnly = false
-        selectedGenres = []
-        selectedYears = []
-        selectedRatings = []
-        selectedTags = []
-    }
-
-    func loadAvailableFilters(client: JellyfinClient) async {
-        guard availableFilters == nil else { return }
-        availableFilters = try? await client.filters(
-            parentId: container.id, includeItemTypes: filterItemTypes)
-    }
-
-    private var filterItemTypes: [String] {
-        includeItemTypes
-    }
-
-    private let pageSize = 100
-    private var fetchSequence = 0
-
-    init(container: BaseItem) {
-        self.container = container
-        // Media libraries default to newest-first feeling sorts only for dateAdded;
-        // keep Fladder's default of name ascending otherwise.
-        if container.collectionType == "movies" || container.collectionType == "tvshows" {
-            sort = .name
-        }
-    }
-
-    private var includeItemTypes: [String] {
-        switch container.collectionType {
-        case "movies": ["Movie"]
-        case "tvshows": ["Series"]
-        case "music": ["MusicAlbum"]
-        case "homevideos": []
-        case "boxsets": ["BoxSet"]
-        default: []
-        }
-    }
-
-    /// Views and tag-style containers browse recursively by type; plain folders,
-    /// box sets, and playlists list direct children.
-    private var browsesRecursively: Bool {
-        switch container.type {
-        case .userView, .collectionFolder:
-            return !includeItemTypes.isEmpty || container.collectionType == "homevideos"
-        default:
-            return false
-        }
-    }
-
-    func reload(client: JellyfinClient) async {
-        fetchSequence += 1
-        let sequence = fetchSequence
-        isLoading = true
-        errorMessage = nil
-        do {
-            let result = try await fetchPage(client: client, startIndex: 0)
-            guard sequence == fetchSequence else { return }
-            items = result.items ?? []
-            total = result.totalRecordCount
-            hasLoaded = true
-        } catch {
-            guard sequence == fetchSequence else { return }
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
-
-    func loadMoreIfNeeded(current item: BaseItem, client: JellyfinClient) {
-        guard !isLoading,
-              let total, items.count < total,
-              let index = items.firstIndex(where: { $0.id == item.id }),
-              index >= items.count - 20
-        else { return }
-        fetchSequence += 1
-        let sequence = fetchSequence
-        isLoading = true
-        Task {
-            do {
-                let result = try await fetchPage(client: client, startIndex: items.count)
-                guard sequence == fetchSequence else { return }
-                items.append(contentsOf: result.items ?? [])
-                self.total = result.totalRecordCount ?? self.total
-            } catch {
-                // Silent: scrolling further retriggers the page.
-            }
-            if sequence == fetchSequence {
-                isLoading = false
-            }
-        }
-    }
-
-    private func fetchPage(client: JellyfinClient, startIndex: Int) async throws -> ItemsResult {
-        var query = JellyfinClient.ItemsQuery()
-        query.parentId = container.id
-        query.includeItemTypes = includeItemTypes
-        query.recursive = browsesRecursively
-        query.sortBy = sort.rawValue
-        query.sortOrder = effectiveOrder
-        query.startIndex = startIndex
-        query.limit = pageSize
-        var filters: [String] = []
-        if favoritesOnly { filters.append("IsFavorite") }
-        if unplayedOnly { filters.append("IsUnplayed") }
-        query.filters = filters
-        query.genres = Array(selectedGenres)
-        query.years = Array(selectedYears)
-        query.officialRatings = Array(selectedRatings)
-        query.tags = Array(selectedTags)
-        return try await client.items(query)
-    }
-
-    private var effectiveOrder: String {
-        ascending ? "Ascending" : "Descending"
-    }
-}
-
+/// Hosts two presentations of the same `LibraryGridModel`: the poster grid and
+/// the Atrium spatial gallery. Switching modes never refetches.
 struct LibraryGridView: View {
     @Environment(AppState.self) private var app
     @State private var model: LibraryGridModel
@@ -182,7 +15,22 @@ struct LibraryGridView: View {
 
     private var columns: [GridItem] {
         let factor = app.settings.posterScale.factor
+        #if os(tvOS)
+        return [GridItem(.adaptive(minimum: 200 * factor, maximum: 260 * factor), spacing: TVHome.cardSpacing)]
+        #else
         return [GridItem(.adaptive(minimum: 130 * factor, maximum: 195 * factor), spacing: 14)]
+        #endif
+    }
+
+    private var viewMode: LibraryViewMode {
+        #if DEBUG
+        #if os(tvOS)
+        return .grid
+        #else
+        if let forced = AtriumAutopilot.forceViewMode { return forced }
+        #endif
+        #endif
+        return app.settings.libraryViewMode
     }
 
     var body: some View {
@@ -194,11 +42,25 @@ struct LibraryGridView: View {
             } else if !model.hasLoaded {
                 CenteredProgressView()
             } else {
-                grid
+                if viewMode == .atrium {
+                    #if os(tvOS)
+                    EmptyView()
+                    #else
+                    SpatialLibraryView(model: model)
+                    #endif
+                } else {
+                    grid
+                }
             }
         }
+        #if os(tvOS)
+        // No toolbar on the TV: the title and the sort/filter control live in
+        // the grid's own header, where the remote can reach them.
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .navigationTitle(model.container.displayTitle)
         .toolbar { toolbarContent }
+        #endif
         .task {
             if !model.hasLoaded {
                 await reload()
@@ -213,6 +75,33 @@ struct LibraryGridView: View {
         }
     }
 
+    #if os(tvOS)
+    /// Title, item count, and the one control the remote needs.
+    private var tvHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 20) {
+            Text(model.container.displayTitle)
+                .font(.title.weight(.bold))
+            if let total = model.total {
+                Text("\(total)")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                showFilters = true
+            } label: {
+                Label(
+                    model.activeFilterCount > 0 ? "Sort & Filter (\(model.activeFilterCount))" : "Sort & Filter",
+                    systemImage: model.activeFilterCount > 0
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle")
+            }
+        }
+        .padding(.horizontal, TVHome.margin)
+        .padding(.top, 24)
+    }
+    #endif
+
     private func reload() async {
         guard let client = app.client else { return }
         await model.reload(client: client)
@@ -220,7 +109,10 @@ struct LibraryGridView: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+            #if os(tvOS)
+            tvHeader
+            #endif
+            LazyVGrid(columns: columns, alignment: .leading, spacing: gridRowSpacing) {
                 ForEach(model.items) { item in
                     GridPosterCell(item: item)
                         .onAppear {
@@ -230,13 +122,16 @@ struct LibraryGridView: View {
                         }
                 }
             }
-            .padding(16)
+            .padding(gridInsets)
 
             if model.isLoading, model.hasLoaded {
                 ProgressView()
                     .padding(.bottom, 24)
             }
         }
+        #if os(tvOS)
+        .scrollClipDisabled()
+        #endif
         .overlay {
             if model.hasLoaded, model.items.isEmpty {
                 ContentUnavailableView(
@@ -246,6 +141,7 @@ struct LibraryGridView: View {
             }
         }
         // Pinch adjusts the global poster size (Fladder's pinch-to-zoom).
+        #if !os(tvOS)
         .simultaneousGesture(
             MagnifyGesture()
                 .onEnded { value in
@@ -255,12 +151,55 @@ struct LibraryGridView: View {
                         withAnimation { app.settings.posterScale = smaller }
                     }
                 })
+        #endif
     }
 
+    private var gridRowSpacing: CGFloat {
+        #if os(tvOS)
+        TVHome.rowSpacing
+        #else
+        18
+        #endif
+    }
+
+    private var gridInsets: EdgeInsets {
+        #if os(tvOS)
+        EdgeInsets(top: 28, leading: TVHome.margin, bottom: 40, trailing: TVHome.margin)
+        #else
+        EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+        #endif
+    }
+
+    #if !os(tvOS)
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItem(placement: .navigation) {
+            @Bindable var app = app
+            Picker("View", selection: $app.settings.libraryViewMode) {
+                ForEach(LibraryViewMode.allCases) { mode in
+                    Label(mode.label, systemImage: mode.icon).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .help("Switch between the poster grid and the Atrium spatial gallery")
+        }
+        #endif
+
         ToolbarItem(placement: .primaryAction) {
             HStack(spacing: 4) {
+                #if os(iOS)
+                // A phone has no room beside the title for a segmented control,
+                // so one button flips between the two presentations.
+                Button {
+                    app.settings.libraryViewMode = viewMode == .atrium ? .grid : .atrium
+                } label: {
+                    Label(
+                        viewMode == .atrium ? "Show Grid" : "Show Atrium",
+                        systemImage: (viewMode == .atrium ? LibraryViewMode.grid : .atrium).icon)
+                }
+                #endif
+
                 Menu {
                     Picker("Sort by", selection: $model.sort) {
                         ForEach(LibraryGridModel.Sort.allCases) { sort in
@@ -289,6 +228,7 @@ struct LibraryGridView: View {
             .onChange(of: model.ascending) { Task { await reload() } }
         }
     }
+    #endif
 }
 
 /// Grid cell sized by the grid column rather than a fixed width.
@@ -297,42 +237,71 @@ struct GridPosterCell: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
+        #if os(tvOS)
+        // Same shape as the home shelf card: the focus engine lifts the poster
+        // and the caption stays put beneath it.
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: item) {
+                poster
+            }
+            .buttonStyle(.card)
+            caption
+                .padding(.horizontal, 4)
+        }
+        #else
         NavigationLink(value: item) {
             VStack(alignment: .leading, spacing: 6) {
-                RemoteImage(url: app.client?.imageURL(item.posterRef, maxWidth: 400))
-                    .aspectRatio(2 / 3, contentMode: .fill)
-                    .overlay(alignment: .bottom) {
-                        if let progress = item.progressFraction {
-                            ProgressBar(fraction: progress)
-                        }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if let count = item.userData?.unplayedItemCount, count > 0 {
-                            Text("\(count)")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(.blue, in: Capsule())
-                                .padding(6)
-                        } else if item.userData?.played == true {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.white, .blue)
-                                .padding(6)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.displayTitle)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(item.posterSubtitle ?? " ")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                poster
+                caption
             }
         }
         .buttonStyle(.plain)
+        #endif
+    }
+
+    private var cornerRadius: CGFloat {
+        #if os(tvOS)
+        TVHome.cardCornerRadius
+        #else
+        10
+        #endif
+    }
+
+    private var poster: some View {
+        RemoteImage(url: app.client?.imageURL(item.posterRef, maxWidth: 400))
+            .aspectRatio(2 / 3, contentMode: .fill)
+            .overlay(alignment: .bottom) {
+                if let progress = item.progressFraction {
+                    ProgressBar(fraction: progress)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let count = item.userData?.unplayedItemCount, count > 0 {
+                    Text("\(count)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue, in: Capsule())
+                        .padding(6)
+                } else if item.userData?.played == true {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.white, .blue)
+                        .padding(6)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.displayTitle)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+            Text(item.posterSubtitle ?? " ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
     }
 }

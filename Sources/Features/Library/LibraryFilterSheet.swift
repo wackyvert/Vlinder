@@ -10,6 +10,27 @@ struct LibraryFilterSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                #if os(tvOS)
+                // The TV has no toolbar to hang Sort or Done on: both live in
+                // the form, where the remote can reach them. Menu also closes.
+                Section {
+                    Button("Done") { dismiss() }
+                    Button("Clear All") { model.clearFilters() }
+                        .disabled(model.activeFilterCount == 0)
+                }
+                Section("Sort") {
+                    Picker("Sort by", selection: $model.sort) {
+                        ForEach(LibraryGridModel.Sort.allCases) { sort in
+                            Text(sort.label).tag(sort)
+                        }
+                    }
+                    Picker("Order", selection: $model.ascending) {
+                        Text("Ascending").tag(true)
+                        Text("Descending").tag(false)
+                    }
+                }
+                #endif
+
                 Section {
                     Toggle("Favorites only", isOn: $model.favoritesOnly)
                     Toggle("Unwatched only", isOn: $model.unplayedOnly)
@@ -39,10 +60,11 @@ struct LibraryFilterSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle("Filters")
+            .navigationTitle(sheetTitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            #if !os(tvOS)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Clear All") {
@@ -54,11 +76,20 @@ struct LibraryFilterSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            #endif
             .task {
                 guard let client = app.client else { return }
                 await model.loadAvailableFilters(client: client)
             }
         }
+    }
+
+    private var sheetTitle: String {
+        #if os(tvOS)
+        "Sort & Filter"
+        #else
+        "Filters"
+        #endif
     }
 
     private func multiSelectSection(

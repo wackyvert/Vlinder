@@ -50,29 +50,70 @@ final class LiveTVModel {
 struct LiveTVView: View {
     enum Mode: String, CaseIterable, Identifiable {
         case guide, channels
+        /// The wall: channels wrapped around the viewer, a band per group.
+        case atrium
+
         var id: String { rawValue }
-        var label: String { self == .guide ? "Guide" : "Channels" }
-        var icon: String { self == .guide ? "rectangle.grid.1x2" : "list.bullet" }
+
+        var label: String {
+            switch self {
+            case .guide: "Guide"
+            case .channels: "Channels"
+            case .atrium: "Atrium"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .guide: "rectangle.grid.1x2"
+            case .channels: "list.bullet"
+            case .atrium: "square.3.layers.3d"
+            }
+        }
     }
 
     @Environment(AppState.self) private var app
     @Environment(PlayerCoordinator.self) private var player
     @State private var model = LiveTVModel()
-    @State private var mode: Mode = .guide
+    @State private var mode: Mode = Self.initialMode
+
+    private static var initialMode: Mode {
+        #if DEBUG
+        #if !os(tvOS)
+        if LiveWallAutopilot.isActive { return .atrium }
+        #endif
+        if GuideAutopilot.isActive { return .guide }
+        #endif
+        return .guide
+    }
 
     var body: some View {
         Group {
             switch mode {
             case .guide:
-                GuideView()
+                guideView
             case .channels:
                 channelListBody
+            case .atrium:
+                #if os(tvOS)
+                guideView
+                #else
+                LiveWallView()
+                    .ignoresSafeArea(edges: .bottom)
+                #endif
             }
         }
+        #if os(tvOS)
+        // The tab bar already says "Live TV"; the stack's own title is a
+        // second copy, set large, that costs the guide two rows of channels.
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .navigationTitle("Live TV")
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        #if !os(tvOS)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Picker("View", selection: $mode) {
@@ -83,6 +124,20 @@ struct LiveTVView: View {
                 .pickerStyle(.segmented)
             }
         }
+        #endif
+    }
+
+    /// tvOS draws no navigation bar, so a toolbar item there is a control that
+    /// exists and cannot be reached — the round-0 frame had no switch at all.
+    /// The guide's header strip hosts it instead, after the pager, where the
+    /// remote reaches it by pressing right along the strip.
+    @ViewBuilder
+    private var guideView: some View {
+        #if os(tvOS)
+        GuideView(headerAccessory: AnyView(GuideModeSwitch(selection: $mode)))
+        #else
+        GuideView()
+        #endif
     }
 
     @ViewBuilder
@@ -204,3 +259,58 @@ struct ChannelListRow: View {
         return line
     }
 }
+
+#if os(tvOS)
+/// The Guide/Channels switch as the header strip draws it: two segments in the
+/// day pill's own cloth, the chosen one lit, each a guide button so focus is
+/// the same ring the rest of the strip wears. Not `Picker(.segmented)`: tvOS's
+/// segmented control is a platform-styled glass slab that answered focus with
+/// the same white halo the day pill was faulted for.
+///
+/// The chosen segment is lit grey, not white: the focus ring is white, and on
+/// a white segment it vanished — the one control in the strip whose focus
+/// could not be seen was the one that had just been selected.
+struct GuideModeSwitch: View {
+    @Binding var selection: LiveTVView.Mode
+    @FocusState private var focused: LiveTVView.Mode?
+
+    private static let radius = GuideMetrics.scaled(8)
+    /// Two steps above the pill: lit enough to read as chosen from the sofa,
+    /// dark enough that a white ring on it is unmistakable.
+    private static let lit = Color(hex: 0x4A4C56)
+
+    var body: some View {
+        HStack(spacing: GuideMetrics.scaled(4)) {
+            ForEach(LiveTVView.Mode.allCases.filter { $0 != .atrium }) { mode in
+                Button { selection = mode } label: {
+                    Text(mode.label)
+                        .font(.system(size: GuideMetrics.headerType(17), weight: .medium))
+                        .foregroundStyle(.white.opacity(selection == mode ? 1 : 0.7))
+                        .padding(.horizontal, GuideMetrics.scaled(14))
+                        .frame(height: GuideMetrics.headerStripHeight)
+                        .background(
+                            selection == mode ? Self.lit : GuidePalette.pill,
+                            in: RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
+                }
+                .guideButtonStyle(cornerRadius: Self.radius)
+                .focused($focused, equals: mode)
+            }
+        }
+        .task {
+            #if DEBUG
+            // -GuideFocus mode: photograph the switch focused. The round-1
+            // sheet shows this frame with nothing focused at all: one request
+            // at 400 ms landed while the guide's `defaultFocus` was still
+            // claiming the airing-now cell, and lost. So the request is made
+            // late and then repeated until the engine reports it took.
+            guard case .modeSwitch? = GuideAutopilot.focusTarget else { return }
+            for _ in 0..<8 {
+                try? await Task.sleep(for: .milliseconds(600))
+                if focused == selection { return }
+                focused = selection
+            }
+            #endif
+        }
+    }
+}
+#endif

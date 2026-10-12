@@ -15,8 +15,8 @@ struct PasscodeView: View {
             Text("Enter passcode")
                 .font(.title3.weight(.semibold))
             SecureField("Passcode", text: $code)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 200)
+                .fieldStyle()
+                .frame(maxWidth: TenFoot.isTV ? 520 : 200)
                 .multilineTextAlignment(.center)
                 .focused($focused)
                 #if os(iOS)
@@ -61,12 +61,12 @@ struct SetPasscodeSheet: View {
             Text("Set a passcode")
                 .font(.headline)
             SecureField("Passcode (4+ digits)", text: $first)
-                .textFieldStyle(.roundedBorder)
+                .fieldStyle()
                 #if os(iOS)
                 .keyboardType(.numberPad)
                 #endif
             SecureField("Repeat passcode", text: $second)
-                .textFieldStyle(.roundedBorder)
+                .fieldStyle()
                 #if os(iOS)
                 .keyboardType(.numberPad)
                 #endif
@@ -90,7 +90,7 @@ struct SetPasscodeSheet: View {
                 .disabled(first.count < 4)
             }
         }
-        .padding(24)
-        .frame(maxWidth: 360)
+        .padding(TenFoot.cardPadding)
+        .frame(maxWidth: TenFoot.isTV ? 900 : 360)
     }
 }

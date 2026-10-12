@@ -287,7 +287,11 @@ struct ProgramsRequestBody: Encodable {
     var startIndex: Int?
     var limit: Int?
     var sortBy: [String] = ["StartDate"]
+    /// The guide reads a grid of names and needs no artwork; the Live TV wall
+    /// puts each programme's own still on a card and does.
     var enableImages: Bool = false
+    var imageTypeLimit: Int?
+    var enableImageTypes: [String]?
     var enableUserData: Bool = false
     var fields: [String] = ["Overview"]
 
@@ -299,6 +303,8 @@ struct ProgramsRequestBody: Encodable {
         case limit = "Limit"
         case sortBy = "SortBy"
         case enableImages = "EnableImages"
+        case imageTypeLimit = "ImageTypeLimit"
+        case enableImageTypes = "EnableImageTypes"
         case enableUserData = "EnableUserData"
         case fields = "Fields"
     }

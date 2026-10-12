@@ -167,6 +167,13 @@ struct ChapterRow: View {
 
     var body: some View {
         if chapters.count > 1 {
+            #if os(tvOS)
+            TVHomeShelf(title: "Chapters") {
+                ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                    chapterCard(chapter, index: index)
+                }
+            }
+            #else
             VStack(alignment: .leading, spacing: 10) {
                 Text("Chapters")
                     .font(.title3.weight(.semibold))
@@ -180,39 +187,73 @@ struct ChapterRow: View {
                     .padding(.horizontal, 20)
                 }
             }
+            #endif
         }
     }
 
+    #if os(tvOS)
+    private let stillWidth: CGFloat = 320
+    private let stillHeight: CGFloat = 180
+    private let stillRadius: CGFloat = TVHome.cardCornerRadius
+    #else
+    private let stillWidth: CGFloat = 168
+    private let stillHeight: CGFloat = 94
+    private let stillRadius: CGFloat = 8
+    #endif
+
     private func chapterCard(_ chapter: ChapterInfo, index: Int) -> some View {
-        Button {
-            guard let client = app.client else { return }
-            player.play(
-                item: item,
-                queue: queue,
-                startTicks: chapter.startPositionTicks,
-                client: client,
-                settings: app.settings)
-        } label: {
+        #if os(tvOS)
+        // Still inside the card button so focus lifts it; caption stays put.
+        VStack(alignment: .leading, spacing: 10) {
+            Button { playChapter(chapter) } label: { still(chapter, index: index) }
+                .buttonStyle(.card)
+            chapterCaption(chapter, index: index)
+                .padding(.horizontal, 4)
+        }
+        .frame(width: stillWidth)
+        #else
+        Button { playChapter(chapter) } label: {
             VStack(alignment: .leading, spacing: 5) {
-                RemoteImage(url: app.client?.chapterImageURL(
-                    itemId: item.id, index: index, tag: chapter.imageTag))
-                    .frame(width: 168, height: 94)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(.separator.opacity(0.4), lineWidth: 0.5)
-                    }
-                Text(chapter.name ?? "Chapter \(index + 1)")
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                Text(timeLabel(chapter.startPosition))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                still(chapter, index: index)
+                chapterCaption(chapter, index: index)
             }
-            .frame(width: 168)
+            .frame(width: stillWidth)
         }
         .buttonStyle(.plain)
+        #endif
+    }
+
+    private func still(_ chapter: ChapterInfo, index: Int) -> some View {
+        RemoteImage(url: app.client?.chapterImageURL(
+            itemId: item.id, index: index, tag: chapter.imageTag))
+            .frame(width: stillWidth, height: stillHeight)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: stillRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: stillRadius, style: .continuous)
+                    .strokeBorder(.separator.opacity(0.4), lineWidth: 0.5)
+            }
+    }
+
+    private func chapterCaption(_ chapter: ChapterInfo, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(chapter.name ?? "Chapter \(index + 1)")
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+            Text(timeLabel(chapter.startPosition))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func playChapter(_ chapter: ChapterInfo) {
+        guard let client = app.client else { return }
+        player.play(
+            item: item,
+            queue: queue,
+            startTicks: chapter.startPositionTicks,
+            client: client,
+            settings: app.settings)
     }
 
     private func timeLabel(_ seconds: TimeInterval) -> String {
@@ -241,6 +282,10 @@ struct ExternalLinksRow: View {
     }
 
     var body: some View {
+        #if os(tvOS)
+        // No browser on the TV to open IMDb or TMDb in.
+        EmptyView()
+        #else
         if !links.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -261,5 +306,6 @@ struct ExternalLinksRow: View {
                 }
             }
         }
+        #endif
     }
 }

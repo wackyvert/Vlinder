@@ -39,6 +39,23 @@ enum PosterScale: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum LibraryViewMode: String, Codable, CaseIterable, Identifiable {
+    case grid, atrium
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .grid: "Grid"
+        case .atrium: "Atrium"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .grid: "square.grid.2x2"
+        case .atrium: "square.3.layers.3d"
+        }
+    }
+}
+
 /// Client-side settings, persisted as JSON in UserDefaults.
 /// Hand-written `init(from:)` with `decodeIfPresent` on every key so adding a
 /// setting never resets existing ones (Tuner pattern).
@@ -55,6 +72,8 @@ struct AppSettings: Codable, Equatable {
     var collapsedGroups: [String] = []
     var theme: ThemeMode = .system
     var posterScale: PosterScale = .medium
+    /// Library browsing presentation (poster grid or the Atrium spatial gallery).
+    var libraryViewMode: LibraryViewMode = .grid
     /// Hero banner on the home screen.
     var showHomeBanner: Bool = true
     var appLockEnabled: Bool = false
@@ -70,6 +89,7 @@ struct AppSettings: Codable, Equatable {
         collapsedGroups = try container.decodeIfPresent([String].self, forKey: .collapsedGroups) ?? []
         theme = try container.decodeIfPresent(ThemeMode.self, forKey: .theme) ?? .system
         posterScale = try container.decodeIfPresent(PosterScale.self, forKey: .posterScale) ?? .medium
+        libraryViewMode = try container.decodeIfPresent(LibraryViewMode.self, forKey: .libraryViewMode) ?? .grid
         showHomeBanner = try container.decodeIfPresent(Bool.self, forKey: .showHomeBanner) ?? true
         appLockEnabled = try container.decodeIfPresent(Bool.self, forKey: .appLockEnabled) ?? false
     }

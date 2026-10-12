@@ -65,18 +65,41 @@ struct PersonItemsView: View {
     @State private var items: [BaseItem] = []
     @State private var loaded = false
 
+    #if os(tvOS)
+    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: TVHome.cardSpacing)]
+    #else
     private let columns = [GridItem(.adaptive(minimum: 130, maximum: 190), spacing: 14)]
+    #endif
 
     var body: some View {
         ScrollView {
+            #if os(tvOS)
+            Text(person.displayTitle)
+                .font(.title.weight(.bold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, TVHome.margin)
+                .padding(.top, 24)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: TVHome.rowSpacing) {
+                ForEach(items) { item in
+                    GridPosterCell(item: item)
+                }
+            }
+            .padding(EdgeInsets(top: 28, leading: TVHome.margin, bottom: 40, trailing: TVHome.margin))
+            #else
             LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                 ForEach(items) { item in
                     GridPosterCell(item: item)
                 }
             }
             .padding(16)
+            #endif
         }
+        #if os(tvOS)
+        .scrollClipDisabled()
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .navigationTitle(person.displayTitle)
+        #endif
         .overlay {
             if !loaded { CenteredProgressView() }
         }

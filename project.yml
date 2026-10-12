@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "17.0"
     macOS: "14.0"
+    tvOS: "17.0"
   createIntermediateGroups: true
 
 settings:
@@ -16,9 +17,48 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
 targets:
+  VlinderTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS]
+    sources:
+      - path: Tests/VlinderTests
+      # Pure layout math and print rules are compiled directly into the
+      # bundle: no app host, no @testable import, no rendering.
+      - path: Sources/Features/Spatial/SpatialLibraryLayout.swift
+      - path: Sources/Features/Spatial/AtriumCasePrint.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  VlinderGuideTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS]
+    sources:
+      - path: Tests/VlinderGuideTests
+      - path: Sources/Core/API
+      - path: Sources/Core/Playback/DeviceProfile.swift
+      - path: Sources/Core/Session/SessionStore.swift
+      - path: Sources/Core/Session/AppSettings.swift
+      - path: Sources/Core/LiveTV
+      - path: Sources/Features/LiveTV/GuideModel.swift
+      - path: Sources/Features/LiveTV/GuideCache.swift
+      - path: Sources/Features/LiveTV/GuideViewport.swift
+      - path: Sources/Features/LiveTV/GuideClock.swift
+      - path: Sources/Features/LiveTV/GuideLayout.swift
+      - path: Sources/Features/LiveTV/GuideFixture.swift
+      - path: Sources/Features/LiveTV/GuideAutopilot.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.guidetests
+        GENERATE_INFOPLIST_FILE: YES
+
   Vlinder:
     type: application
     supportedDestinations: [iOS, macOS]
+    # A shared scheme of its own: xcodebuild invents none for a multi-platform
+    # target, and scripts/install-mac.sh and mac-shot.sh build `-scheme Vlinder`.
+    scheme: {}
     sources:
       - path: Sources
       - path: Resources/Assets.xcassets
@@ -40,6 +80,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder
         PRODUCT_NAME: Vlinder
+        # Pin the platforms: with a tvOS target in the project Xcode will happily
+        # offer an Apple TV destination for this scheme too, and then compile the
+        # SceneKit rooms for a platform they are excluded from.
+        SUPPORTED_PLATFORMS: "macosx iphoneos iphonesimulator"
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
@@ -49,3 +93,120 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Resources/Vlinder.entitlements
         "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": YES
+
+  # Media and Live TV only. The Atrium and LiveWall are SceneKit rooms built
+  # around a pointer and a desk; they have no ten-foot form and stay off the TV.
+  VlinderTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Sources
+        excludes:
+          - "Features/LiveWall/**"
+          - "Features/Spatial/**"
+      - path: Resources/Assets.xcassets
+    info:
+      path: Resources/Info-tvOS.plist
+      properties:
+        CFBundleDisplayName: Vlinder
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Vlinder looks for Jellyfin servers on your network.
+        UIUserInterfaceStyle: Dark
+        # The one entry point the Top Shelf and Siri both use.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.jake.vlinder
+            CFBundleURLSchemes: [vlinder]
+        NSUserActivityTypes:
+          - dev.jake.vlinder.play
+          - INPlayMediaIntent
+    dependencies:
+      - target: VlinderTopShelf
+      - target: VlinderIntents
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.tv
+        CODE_SIGN_ENTITLEMENTS: Resources/VlinderTV.entitlements
+        PRODUCT_NAME: Vlinder
+        TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: TVAppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: NO
+
+  # Apple TV home-screen shelf. Compiles the API/session layer straight in
+  # rather than through a framework: the extension needs six calls' worth of it
+  # and a shared framework would be more moving parts than the shelf is worth.
+  VlinderTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: Sources/TopShelf
+      - path: Sources/Intents/DeepLink.swift
+      - path: Sources/Core/API
+      - path: Sources/Core/Session/SessionStore.swift
+      - path: Sources/Core/Playback/DeviceProfile.swift
+    info:
+      path: Resources/Info-TopShelf.plist
+      properties:
+        CFBundleDisplayName: Vlinder Top Shelf
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfContentProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.tv.topshelf
+        PRODUCT_NAME: VlinderTopShelf
+        TARGETED_DEVICE_FAMILY: "3"
+        CODE_SIGN_ENTITLEMENTS: Resources/VlinderTopShelf.entitlements
+        SWIFT_EMIT_LOC_STRINGS: NO
+
+  # SiriKit media grammar ("play X", routed to Vlinder). The App Intents phrases
+  # live in the app itself; this extension exists only because INPlayMediaIntent
+  # has no in-app handler on tvOS.
+  VlinderIntents:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: Sources/Intents/PlayMediaIntentHandler.swift
+      - path: Sources/Intents/MediaResolver.swift
+      - path: Sources/Intents/DeepLink.swift
+      - path: Sources/TopShelf/SharedSession.swift
+      - path: Sources/Core/API
+      - path: Sources/Core/Session/SessionStore.swift
+      - path: Sources/Core/Playback/DeviceProfile.swift
+    info:
+      path: Resources/Info-Intents.plist
+      properties:
+        CFBundleDisplayName: Vlinder Intents
+        NSExtension:
+          NSExtensionAttributes:
+            IntentsSupported: [INPlayMediaIntent]
+          NSExtensionPointIdentifier: com.apple.intents-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).IntentHandler
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.tv.intents
+        PRODUCT_NAME: VlinderIntents
+        TARGETED_DEVICE_FAMILY: "3"
+        CODE_SIGN_ENTITLEMENTS: Resources/VlinderIntents.entitlements
+        SWIFT_EMIT_LOC_STRINGS: NO
+
+  # Resolution is the part of Siri that can be proven without a device: the
+  # ranking, the deep-link vocabulary, and (when a session is mirrored) a real
+  # lookup against the server.
+  VlinderIntentTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS]
+    sources:
+      - path: Tests/VlinderIntentTests
+      - path: Sources/Intents/MediaResolver.swift
+      - path: Sources/Intents/DeepLink.swift
+      - path: Sources/TopShelf/SharedSession.swift
+      - path: Sources/Core/API
+      - path: Sources/Core/Session/SessionStore.swift
+      - path: Sources/Core/Playback/DeviceProfile.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jake.vlinder.intenttests
+        GENERATE_INFOPLIST_FILE: YES

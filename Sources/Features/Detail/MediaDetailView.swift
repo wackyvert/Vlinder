@@ -88,7 +88,7 @@ struct MediaDetailView: View {
                     OverviewText(item: model.item)
                     ExternalLinksRow(item: model.item)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, DetailMetrics.edge)
 
                 ChapterRow(
                     item: model.item,
@@ -97,24 +97,27 @@ struct MediaDetailView: View {
                 PeopleRow(people: model.item.people ?? [])
 
                 if model.item.type == .episode, !model.siblings.isEmpty {
-                    MediaRow(
-                        title: model.item.seasonName ?? "Episodes",
-                        items: model.siblings,
-                        style: .thumb)
+                    row(model.item.seasonName ?? "Episodes", model.siblings, style: .thumb)
                 }
 
                 if !model.specialFeatures.isEmpty {
-                    MediaRow(title: "Special Features", items: model.specialFeatures, style: .thumb)
+                    row("Special Features", model.specialFeatures, style: .thumb)
                 }
 
                 if !model.similar.isEmpty {
-                    MediaRow(title: "More Like This", items: model.similar)
+                    row("More Like This", model.similar, style: .poster)
                 }
             }
             .padding(.bottom, 32)
         }
         .ignoresSafeArea(edges: .top)
+        #if os(tvOS)
+        // The hero already carries the title (or logo); the stack's grey copy
+        // would float over the backdrop.
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .navigationTitle(model.item.displayTitle)
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -123,5 +126,15 @@ struct MediaDetailView: View {
             guard let client = app.client else { return }
             await model.load(client: client)
         }
+    }
+
+    /// The shared `MediaRow` is sized for a desk; the TV uses the home shelf.
+    @ViewBuilder
+    private func row(_ title: String, _ items: [BaseItem], style: MediaCard.Style) -> some View {
+        #if os(tvOS)
+        TVHomeRow(title: title, items: items, style: style)
+        #else
+        MediaRow(title: title, items: items, style: style)
+        #endif
     }
 }
